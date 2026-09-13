@@ -55,6 +55,27 @@ mlib_read_block:
         STA mli_status
         RTS
 
+        .global mlib_write_block
+mlib_write_block:
+        LDA #3                ; param count
+        STA mlib_params+0
+        LDA mli_unit
+        STA mlib_params+1
+        LDA mli_buf_lo
+        STA mlib_params+2
+        LDA mli_buf_hi
+        STA mlib_params+3
+        LDA mli_blk_lo
+        STA mlib_params+4
+        LDA mli_blk_hi
+        STA mlib_params+5
+        JSR $BF00
+        .byte $81             ; WRITE_BLOCK
+        .word mlib_params
+        STA mli_status
+        RTS
+
+
         .section .data
 quit_params:
         .byte 4               ; param count

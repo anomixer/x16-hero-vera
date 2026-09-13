@@ -1463,6 +1463,8 @@ static uint8_t update_pause_menu(void) {
 /* ------------------------------ Menu (menu.asm) ------------------------------ */
 static void print_leaderboard(void);
 static void reset_leaderboard(void);
+static void save_leaderboard(void);
+static void load_leaderboard(void);
 #define M_SHOW_MENU_SCREEN 0
 #define M_SHOW_HIGHSCORE_SCREEN 1
 #define M_ENTER_NEW_HIGH_SCORE 2
@@ -1597,7 +1599,7 @@ static void handle_button(void) {
         if (resetconfirmationflag == 0) { resetconfirmationflag = 1; answer = 0; update_main_menu(); }
         else {
             resetconfirmationflag = 0;
-            if (answer) { reset_leaderboard(); show_high_score_screen(); highscorewait = 1; menumode = M_SHOW_HIGHSCORE_SCREEN; }
+            if (answer) { reset_leaderboard(); save_leaderboard(); show_high_score_screen(); highscorewait = 1; menumode = M_SHOW_HIGHSCORE_SCREEN; }
             else { menumode = M_HANDLE_INPUT; update_main_menu(); }
         }
         break;
@@ -1738,6 +1740,48 @@ static void reset_leaderboard(void) {
     }
     leaderboard_start_high = 3;
 }
+
+#define LB_STORAGE_SIZE 163
+
+static void save_leaderboard(void) {
+    uint8_t buf[LB_STORAGE_SIZE];
+    uint16_t p = 0;
+    for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) {
+        for (uint8_t j = 0; j <= LB_NAME_LENGTH; j++) {
+            buf[p++] = leaderboard_names[i][j];
+        }
+    }
+    for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) buf[p++] = leaderboard_saved[i];
+    for (uint8_t i = 0; i < LB_ENTRIES_COUNT * 2; i++) buf[p++] = leaderboard_times[i];
+    for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) buf[p++] = leaderboard_start[i];
+    buf[p++] = leaderboard_start_high;
+    buf[p++] = 0x48; /* 'H' */
+    buf[p++] = 0x53; /* 'S' */
+    disk_write_hiscore(buf, sizeof(buf));
+}
+
+static void load_leaderboard(void) {
+    uint8_t buf[LB_STORAGE_SIZE];
+    disk_read_hiscore(buf, sizeof(buf));
+    if (buf[161] == 0x48 && buf[162] == 0x53) {
+        uint16_t p = 0;
+        for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) {
+            for (uint8_t j = 0; j <= LB_NAME_LENGTH; j++) {
+                leaderboard_names[i][j] = buf[p++];
+            }
+            leaderboard_names[i][LB_NAME_LENGTH] = 0;
+        }
+        for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) leaderboard_saved[i] = buf[p++];
+        for (uint8_t i = 0; i < LB_ENTRIES_COUNT * 2; i++) leaderboard_times[i] = buf[p++];
+        for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) leaderboard_start[i] = buf[p++];
+        leaderboard_start_high = buf[p++];
+        if (leaderboard_start_high == 0 || leaderboard_start_high > 10) leaderboard_start_high = 3;
+    } else {
+        reset_leaderboard();
+        save_leaderboard();
+    }
+}
+
 static uint8_t get_saved_miners_count(void) {
     return (uint8_t)(level - startLevel + levelCompleted);
 }
@@ -1814,6 +1858,7 @@ static uint8_t high_score_input(void) {
             for (uint8_t i = 0; i < LB_NAME_LENGTH; i++) leaderboard_names[newrank][i] = hsName[i];
             leaderboard_names[newrank][LB_NAME_LENGTH] = 0;
             if (level >= leaderboard_start_high) leaderboard_start_high = level;
+            save_leaderboard();
             return 1;
         }
         if (k == 0x08 || k == 0x7F) {  /* backspace/delete */
@@ -2092,7 +2137,7 @@ int main(void) {
     menumode = M_HANDLE_INPUT;
 
     audioInit();
-    reset_leaderboard();
+    load_leaderboard();
     startLevel = 1;
 
     audioPlayMusic(MUSIC_TITLE);

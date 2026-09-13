@@ -15,6 +15,7 @@ extern uint8_t mli_buf_lo, mli_buf_hi;
 extern uint8_t mli_blk_lo, mli_blk_hi;
 extern uint8_t mli_status;
 extern void mlib_read_block(void);
+extern void mlib_write_block(void);
 
 #define BLOCK_BYTES 512
 
@@ -99,3 +100,37 @@ void disk_copy_to_ram(uint32_t offset, uint8_t *dest, uint32_t length) {
         off += n;
     }
 }
+
+#define HISCORE_START_BLOCK 899
+
+void disk_read_hiscore(uint8_t *dest, uint16_t length) {
+    mli_unit = boot_unit;
+    mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
+    mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+    mli_blk_lo = (uint8_t)HISCORE_START_BLOCK;
+    mli_blk_hi = (uint8_t)(HISCORE_START_BLOCK >> 8);
+    mlib_read_block();
+    cached_abs_block = 0xFFFF;
+    cached_unit = 0xFF;
+    if (mli_status == 0) {
+        for (uint16_t i = 0; i < length; i++) {
+            dest[i] = diskBuf[i];
+        }
+    }
+}
+
+uint8_t disk_write_hiscore(const uint8_t *src, uint16_t length) {
+    for (uint16_t i = 0; i < BLOCK_BYTES; i++) {
+        diskBuf[i] = (i < length) ? src[i] : 0;
+    }
+    mli_unit = boot_unit;
+    mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
+    mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+    mli_blk_lo = (uint8_t)HISCORE_START_BLOCK;
+    mli_blk_hi = (uint8_t)(HISCORE_START_BLOCK >> 8);
+    mlib_write_block();
+    cached_abs_block = 0xFFFF;
+    cached_unit = 0xFF;
+    return mli_status;
+}
+

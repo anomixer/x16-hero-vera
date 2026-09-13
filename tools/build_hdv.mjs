@@ -16,9 +16,11 @@ const srcDir = path.join(projectRoot, "src")
 const buildDir = path.join(projectRoot, "build")
 const baseHdvPath = path.join(projectRoot, "800kb.hdv")
 const BLOCK = 512
+const HISCORE_START_BLOCK = 899
 const ASSET_START_BLOCK = 900
 
 const outFileName = "x16-hero-vera.hdv"
+const outPath = path.join(projectRoot, outFileName)
 
 if (!fs.existsSync(baseHdvPath)) throw new Error(`Base HDV not found: ${baseHdvPath}`)
 for (const f of ["main.bin", "assets.blob"])
@@ -27,6 +29,45 @@ for (const f of ["main.bin", "assets.blob"])
 const disk = new Uint8Array(fs.readFileSync(baseHdvPath))
 const TOTAL = disk.length / BLOCK
 
+// ---- High Scores: fixed seedling block (HISCORE_START_BLOCK=899) ----
+const HISCORE_SIZE = 163
+let hiscoreData = null
+if (fs.existsSync(outPath)) {
+  try {
+    const prevDisk = fs.readFileSync(outPath)
+    if (prevDisk.length >= (HISCORE_START_BLOCK + 1) * BLOCK) {
+      const prevBlock = prevDisk.subarray(HISCORE_START_BLOCK * BLOCK, (HISCORE_START_BLOCK + 1) * BLOCK)
+      if (prevBlock[161] === 0x48 && prevBlock[162] === 0x53) {
+        hiscoreData = new Uint8Array(prevBlock)
+        console.log(`  Preserving existing HISCORE.BIN from ${outFileName}`)
+      }
+    }
+  } catch (e) {}
+}
+if (!hiscoreData) {
+  hiscoreData = new Uint8Array(BLOCK)
+  let hp = 0
+  const defaultNames = [
+    "roderrick  ", "elvin a    ", "guybrush   ", "sandy pantz", "z mckracken",
+    "bruce lee  ", "armakuni   ", "rockford   ", "giana      ", "monty mole "
+  ]
+  for (const n of defaultNames) {
+    for (let i = 0; i < 11; i++) hiscoreData[hp++] = n.charCodeAt(i) || 32
+    hiscoreData[hp++] = 0
+  }
+  const defaultSaved = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+  for (const s of defaultSaved) hiscoreData[hp++] = s
+  const defaultTimes = [20,0, 18,0, 16,0, 14,0, 12,0, 10,0, 8,0, 6,0, 4,0, 2,0]
+  for (const t of defaultTimes) hiscoreData[hp++] = t
+  const defaultStart = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  for (const st of defaultStart) hiscoreData[hp++] = st
+  hiscoreData[hp++] = 3
+  hiscoreData[hp++] = 0x48 // 'H'
+  hiscoreData[hp++] = 0x53 // 'S'
+}
+disk.set(hiscoreData, HISCORE_START_BLOCK * BLOCK)
+console.log(`  HISCORE.BIN ${HISCORE_SIZE}B at block ${HISCORE_START_BLOCK}`)
+
 // ---- Assets: fixed block range (keep in sync with src/disk.c ASSET_START_BLOCK) ----
 const assets = new Uint8Array(fs.readFileSync(path.join(buildDir, "assets.blob")))
 const ASSET_BLOCKS = Math.ceil(assets.length / BLOCK)
@@ -34,10 +75,12 @@ disk.set(assets, ASSET_START_BLOCK * BLOCK)
 disk.fill(0, ASSET_START_BLOCK * BLOCK + assets.length, (ASSET_START_BLOCK + ASSET_BLOCKS) * BLOCK)
 console.log(`  assets.blob ${assets.length}B at blocks ${ASSET_START_BLOCK}..${ASSET_START_BLOCK + ASSET_BLOCKS - 1}`)
 
-// ---- Block allocator (skip 0..99 system reserve + asset range) ----
+// ---- Block allocator (skip 0..99 system reserve + hiscore + asset range) ----
 const used = new Set()
 for (let b = 0; b < 100; b++) used.add(b)
+used.add(HISCORE_START_BLOCK)
 for (let b = ASSET_START_BLOCK; b < ASSET_START_BLOCK + ASSET_BLOCKS; b++) used.add(b)
+
 const newlyAllocated = []
 let nextFree = 100
 const allocate = () => {
@@ -98,7 +141,19 @@ const fMain = addMain("main.bin", "MAIN.BIN")
 const appFiles = [fStartup, fMain]
 if (fs.existsSync(path.join(buildDir, "main4.bin"))) appFiles.push(addMain("main4.bin", "MAIN4.BIN"))
 
-const dataFiles = [addDataFile("ASSETS", 0x06, ASSET_START_BLOCK, ASSET_BLOCKS)]
+const fHiscore = {
+  name: "HISCORE.BIN",
+  stType: 1,
+  fileType: 0x06,
+  keyBlock: HISCORE_START_BLOCK,
+  totalBlocks: 1,
+  eof: HISCORE_SIZE,
+  aux: 0x2000
+}
+const dataFiles = [
+  addDataFile("ASSETS", 0x06, ASSET_START_BLOCK, ASSET_BLOCKS),
+  fHiscore
+]
 
 // ---- Rewrite the root directory (block 2) ----
 const vol = disk.subarray(2 * BLOCK, 3 * BLOCK)
@@ -145,9 +200,10 @@ const setUsed = (b) => {
   disk[6 * BLOCK + byteIdx] &= ~(1 << bit)
 }
 for (const b of newlyAllocated) setUsed(b)
+setUsed(HISCORE_START_BLOCK)
 for (let b = ASSET_START_BLOCK; b < ASSET_START_BLOCK + ASSET_BLOCKS; b++) setUsed(b)
 
-const outPath = path.join(projectRoot, outFileName)
 fs.writeFileSync(outPath, disk)
 console.log(`\n  Built ${outPath} (${disk.length} bytes)`)
-console.log(`  Root files: ${keep.length} system + ${appFiles.map(f => f.name).join(" + ")} + ASSETS`)
+console.log(`  Root files: ${keep.length} system + ${appFiles.map(f => f.name).join(" + ")} + ASSETS + HISCORE.BIN`)
+

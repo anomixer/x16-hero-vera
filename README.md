@@ -20,6 +20,7 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
 - **Rich User Interface**:
   - Full titles, animated menu hand selector, start level selector (1..10), pause menu.
   - High score leaderboard with in-game signature entry.
+  - Persistent high scores automatically saved to and loaded from `HISCORE.BIN` on the ProDOS volume.
   - Authentic HUD displaying Level, Elapsed Time, and Remaining Lives.
 
 ---

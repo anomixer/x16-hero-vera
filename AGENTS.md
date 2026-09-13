@@ -302,9 +302,22 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
     before overwriting with numbers every frame, and jammed `LEVEL` and `LIVES` into 13 columns.
   - Removed dots and separated labels to opposite ends of the screen.
 
+### Session 11 — High Score Persistence via HISCORE.BIN
+
+- **Leaderboard disk persistence without complex MLI file manager overhead**:
+  - Allocated fixed seedling block (`HISCORE_START_BLOCK = 899`, immediately adjacent to assets at 900).
+  - Seedling directory entry registered in root ProDOS catalog as `HISCORE.BIN` (`stType = 1`, `fileType = 0x06`, `keyBlock = 899`, `totalBlocks = 1`, `eof = 163`, `aux = 0x2000`).
+  - Added `mlib_write_block` to `src/mli.s` (ProDOS MLI `$81` `WRITE_BLOCK`).
+  - Implemented `disk_read_hiscore()` and `disk_write_hiscore()` in `src/disk.c` with streaming cache invalidation.
+  - Implemented `load_leaderboard()` and `save_leaderboard()` in `src/main.c`, serializing 10 names, saved miners, times, start levels, max allowed start level, and magic bytes ('H', 'S').
+  - Wired auto-load at boot, auto-save upon high-score name entry, and auto-save on reset confirmation.
+  - `build_hdv.mjs` automatically preserves existing high scores across builds when rebuilding `x16-hero-vera.hdv`.
+
 ## Current Project Status
 
 - Fully playable 10-level platformer on Apple II VERA (Slot 2 and Slot 4 dual-build).
 - Bootable 800K ProDOS image: `x16-hero-vera.hdv`.
-- Ready for GitHub repository deployment.
+- Persistent high scores saved to `HISCORE.BIN`.
+- Pushed to GitHub repository https://github.com/anomixer/x16-hero-vera.
+
 
