@@ -313,11 +313,21 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
   - Wired auto-load at boot, auto-save upon high-score name entry, and auto-save on reset confirmation.
   - `build_hdv.mjs` automatically preserves existing high scores across builds when rebuilding `x16-hero-vera.hdv`.
 
+### Session 12 — Menu Navigation Debounce & Selection Fix
+
+- **Fixed double-stepping menu cursor**:
+  - Root cause: `JOY_DIR_HOLD_FRAMES` in `input.c` released `_joy0` direction after 5 frames (83ms) while a human keypress lasts 150-250ms. As a result, the emulator's keyboard auto-repeat delivered a second pulse right after `inputwait` was reset, advancing the menu selector twice (from "START THE GAME" directly to "RESET HIGH SCORES", skipping "SET START LEVEL").
+  - Added `menuNavDelay` countdown (14 frames / ~230ms lockout) to `handle_updown()` and `handle_leftright()`.
+  - Added debounce protection to `levelconfirmationflag` start level adjustment and (Y/N) confirmation dialogs.
+  - Updated `update_pause_menu()` with 14-frame debounce lockout between item selections.
+  - Added `JOY_START` (Return / Enter key) support to `handle_button()` in addition to `JOY_BUTTON_A` (Space / X).
+
 ## Current Project Status
 
 - Fully playable 10-level platformer on Apple II VERA (Slot 2 and Slot 4 dual-build).
 - Bootable 800K ProDOS image: `x16-hero-vera.hdv`.
 - Persistent high scores saved to `HISCORE.BIN`.
 - Pushed to GitHub repository https://github.com/anomixer/x16-hero-vera.
+
 
 

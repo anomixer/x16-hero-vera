@@ -1448,15 +1448,15 @@ static void print_pause_menu(void) {
         text_print(13 + i, 13, pauseMenuItems[i], col);
     }
 }
-static void show_pause_menu(void) { selecteditem = 0; pauseInputWait = 1; print_pause_menu(); }
+static void show_pause_menu(void) { selecteditem = 0; pauseInputWait = 12; print_pause_menu(); }
 /* Returns 0 = resume, 1 = quit, 255 = nothing. */
 static uint8_t update_pause_menu(void) {
+    if (pauseInputWait > 0) { pauseInputWait--; return 255; }
     uint8_t j = joy();
-    if (j == JOY_NOTHING_PRESSED) { pauseInputWait = 0; return 255; }
-    if (pauseInputWait) return 255;
+    if (j == JOY_NOTHING_PRESSED) return 255;
     if ((j & JOY_BUTTON_A) == 0 || (j & JOY_START) == 0) return selecteditem;
-    if ((j & JOY_UP) == 0) { selecteditem = (uint8_t)((selecteditem - 1) & (PAUSEMENU_ITEMCOUNT - 1)); print_pause_menu(); pauseInputWait = 1; return 255; }
-    if ((j & JOY_DOWN) == 0) { selecteditem = (uint8_t)((selecteditem + 1) & (PAUSEMENU_ITEMCOUNT - 1)); print_pause_menu(); pauseInputWait = 1; return 255; }
+    if ((j & JOY_UP) == 0) { selecteditem = (uint8_t)((selecteditem - 1) & (PAUSEMENU_ITEMCOUNT - 1)); print_pause_menu(); pauseInputWait = 14; return 255; }
+    if ((j & JOY_DOWN) == 0) { selecteditem = (uint8_t)((selecteditem + 1) & (PAUSEMENU_ITEMCOUNT - 1)); print_pause_menu(); pauseInputWait = 14; return 255; }
     return 255;
 }
 
@@ -1498,6 +1498,7 @@ static uint8_t answer;
 static uint16_t inactivitytimer;
 static uint8_t levelconfirmationflag, resetconfirmationflag, quitconfirmationflag;
 static uint8_t highscorewait, creditwait;
+static uint8_t menuNavDelay;
 
 static void print_hand(uint8_t clear) {
     uint8_t row = menuItemRows[handrow];
@@ -1553,6 +1554,7 @@ static void show_menu_screen(void) {
     set_menu_camera(SCREENWIDTH/2, SCREENHEIGHT/2);   /* map top-left, hscroll=vscroll=0 */
     text_clear();
     handrow = 0;
+    menuNavDelay = 10;
     update_main_menu();
 }
 static void show_high_score_screen(void) {
@@ -1573,19 +1575,35 @@ static void show_credit_screen(void) {
     text_print(20, 13, "version: 1.01", 1);
 }
 static void handle_updown(void) {
+    if (menuNavDelay > 0) return;
     uint8_t j = joy();
-    if ((j & JOY_UP) == 0) { print_hand(1); if (handrow == 0) handrow = MENU_ITEMS_COUNT - 1; else handrow--; resetconfirmationflag = 0; quitconfirmationflag = 0; levelconfirmationflag = 0; }
-    else if ((j & JOY_DOWN) == 0) { print_hand(1); handrow = (uint8_t)((handrow + 1) % MENU_ITEMS_COUNT); resetconfirmationflag = 0; quitconfirmationflag = 0; levelconfirmationflag = 0; }
-    update_main_menu();
+    if ((j & JOY_UP) == 0) {
+        print_hand(1);
+        if (handrow == 0) handrow = MENU_ITEMS_COUNT - 1;
+        else handrow--;
+        resetconfirmationflag = 0; quitconfirmationflag = 0; levelconfirmationflag = 0;
+        menuNavDelay = 14;
+        update_main_menu();
+    } else if ((j & JOY_DOWN) == 0) {
+        print_hand(1);
+        handrow = (uint8_t)((handrow + 1) % MENU_ITEMS_COUNT);
+        resetconfirmationflag = 0; quitconfirmationflag = 0; levelconfirmationflag = 0;
+        menuNavDelay = 14;
+        update_main_menu();
+    }
 }
 static void handle_leftright(void) {
+    if (menuNavDelay > 0) return;
     uint8_t j = joy();
-    if ((j & JOY_LEFT) == 0) { menumode = M_SHOW_CREDIT_SCREEN; show_credit_screen(); creditwait = 1; inactivitytimer = 0; }
-    else if ((j & JOY_RIGHT) == 0) { menumode = M_SHOW_HIGHSCORE_SCREEN; show_high_score_screen(); highscorewait = 1; inactivitytimer = 0; }
+    if ((j & JOY_LEFT) == 0) {
+        menumode = M_SHOW_CREDIT_SCREEN; show_credit_screen(); creditwait = 1; inactivitytimer = 0; menuNavDelay = 14;
+    } else if ((j & JOY_RIGHT) == 0) {
+        menumode = M_SHOW_HIGHSCORE_SCREEN; show_high_score_screen(); highscorewait = 1; inactivitytimer = 0; menuNavDelay = 14;
+    }
 }
 static void handle_button(void) {
     uint8_t j = joy();
-    if ((j & JOY_BUTTON_A) != 0) return;   /* button A not pressed */
+    if ((j & JOY_BUTTON_A) != 0 && (j & JOY_START) != 0) return;   /* button A / Start not pressed */
     switch (handrow) {
     case 0: /* start game */
         menumode = M_SHOW_MENU_SCREEN;
@@ -1594,6 +1612,7 @@ static void handle_button(void) {
     case 1: /* set start level */
         if (levelconfirmationflag == 0) { levelconfirmationflag = 1; update_main_menu(); }
         else { levelconfirmationflag = 0; update_main_menu(); menumode = M_HANDLE_INPUT; }
+        menuNavDelay = 12;
         break;
     case 2: /* reset high scores */
         if (resetconfirmationflag == 0) { resetconfirmationflag = 1; answer = 0; update_main_menu(); }
@@ -1602,6 +1621,7 @@ static void handle_button(void) {
             if (answer) { reset_leaderboard(); save_leaderboard(); show_high_score_screen(); highscorewait = 1; menumode = M_SHOW_HIGHSCORE_SCREEN; }
             else { menumode = M_HANDLE_INPUT; update_main_menu(); }
         }
+        menuNavDelay = 12;
         break;
     case 3: /* quit game */
         if (quitconfirmationflag == 0) { quitconfirmationflag = 1; answer = 0; update_main_menu(); }
@@ -1610,33 +1630,38 @@ static void handle_button(void) {
             if (answer) { gameStatus = ST_QUITGAME; }
             else { menumode = M_HANDLE_INPUT; update_main_menu(); }
         }
+        menuNavDelay = 12;
         break;
     }
 }
 static void handle_user_input(void) {
     uint8_t j = joy();
     if (j == JOY_NOTHING_PRESSED) { inputwait = 0; return; }
-    if (inputwait) return;
+    if (inputwait && menuNavDelay > 0) return;
     inputwait = 1;
     inactivitytimer = 0;
     /* Confirmation questions: left/right toggles answer. */
     if (levelconfirmationflag) {
+        if (menuNavDelay > 0) return;
         uint8_t l = joy();
-        if ((l & JOY_LEFT) == 0) { if (startLevel > 1) startLevel--; update_main_menu(); return; }
-        if ((l & JOY_RIGHT) == 0) { if (startLevel < leaderboard_start_high) startLevel++; update_main_menu(); return; }
+        if ((l & JOY_LEFT) == 0) { if (startLevel > 1) startLevel--; menuNavDelay = 10; update_main_menu(); return; }
+        if ((l & JOY_RIGHT) == 0) { if (startLevel < leaderboard_start_high) startLevel++; menuNavDelay = 10; update_main_menu(); return; }
         if ((l & JOY_BUTTON_A) == 0 || (l & JOY_UP) == 0 || (l & JOY_DOWN) == 0 || (l & JOY_START) == 0) {
             levelconfirmationflag = 0;
+            menuNavDelay = 12;
             update_main_menu();
             return;
         }
         return;
     }
     if (resetconfirmationflag || quitconfirmationflag) {
+        if (menuNavDelay > 0) return;
         uint8_t l = joy();
-        if ((l & JOY_LEFT) == 0) { answer = 1; update_main_menu(); return; }
-        else if ((l & JOY_RIGHT) == 0) { answer = 0; update_main_menu(); return; }
+        if ((l & JOY_LEFT) == 0) { answer = 1; menuNavDelay = 10; update_main_menu(); return; }
+        else if ((l & JOY_RIGHT) == 0) { answer = 0; menuNavDelay = 10; update_main_menu(); return; }
         if ((l & JOY_BUTTON_A) == 0 || (l & JOY_START) == 0) {
             handle_button();
+            menuNavDelay = 12;
             return;
         }
         return;
@@ -1646,6 +1671,7 @@ static void handle_user_input(void) {
     handle_button();
 }
 static void menu_handler(void) {
+    if (menuNavDelay > 0) menuNavDelay--;
     if (menumode == M_SHOW_MENU_SCREEN) {
         show_menu_screen();
         menumode = M_HANDLE_INPUT;
