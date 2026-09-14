@@ -17,8 +17,21 @@ import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, "..")
-const dataDir = "C:/dev/x16-hero"
+const defaultDataDir = path.join(projectRoot, "assets")
+const fallbackDataDir = "C:/dev/x16-hero"
+const dataDir = fs.existsSync(defaultDataDir) ? defaultDataDir : fallbackDataDir
 const buildDir = path.join(projectRoot, "build")
+
+function findZsmFile(dir, name) {
+  const direct = path.join(dir, `${name}.ZSM`)
+  if (fs.existsSync(direct)) return direct
+  try {
+    const entries = fs.readdirSync(dir)
+    const found = entries.find(e => e.toLowerCase() === `${name}.zsm`.toLowerCase())
+    if (found) return path.join(dir, found)
+  } catch (e) {}
+  return direct
+}
 
 const TRACKS = [
   { name: "TITLE",        file: "TITLE.ZSM" },
@@ -40,8 +53,10 @@ function midiToFreqN(midiNote) {
 const noteMap = { 14: 0, 0: 1, 1: 2, 2: 3, 4: 4, 5: 5, 6: 6, 8: 7, 9: 8, 10: 9, 12: 10, 13: 11 };
 
 function compileZsm(name) {
-  const raw = fs.readFileSync(path.join(dataDir, `${name}.ZSM`));
+  const raw = fs.readFileSync(findZsmFile(dataDir, name));
+  const loopOffset = raw[3] | (raw[4] << 8) | (raw[5] << 16);
   let ptr = 16, tick = 0;
+  let loopTick = -1;
   const ymChNotes = [0, 0, 0, 0, 0, 0, 0, 0];
   const ymChKFs   = [0, 0, 0, 0, 0, 0, 0, 0];
   const ymChTL    = Array.from({ length: 8 }, () => [0, 0, 0, 0]);
@@ -54,22 +69,21 @@ function compileZsm(name) {
   }
 
   while (ptr < raw.length) {
+    if (loopOffset > 0 && ptr >= loopOffset && loopTick < 0) {
+      loopTick = tick;
+    }
     const command = raw[ptr++];
 
     if (command < 0x40) {
       // Native PSG write (voice 0 or 1)
       let val = raw[ptr++];
-      if (name === "TITLE") {
-        // Boost second-half native melody on voice 0 and counter-melody on voice 1
-        // while preserving note-offs (vol = 0) and smooth envelope decays.
-        if (command === 2) {
-          const pan = val & 0xC0;
-          const vol = val & 0x3F;
-          val = pan | (vol === 0 ? 0 : Math.min(63, Math.round(vol * 63 / 53)));
-        } else if (command === 6) {
-          const pan = val & 0xC0;
-          const vol = val & 0x3F;
-          val = pan | (vol === 0 ? 0 : Math.min(60, Math.round(vol * 60 / 53)));
+      if (command === 2 || command === 6) {
+        const pan = val & 0xC0;
+        const vol = val & 0x3F;
+        if (vol > 0) {
+          // Boost native volume logarithmically into the audible 45..63 range
+          const boosted = Math.min(63, Math.round(18 + vol * 45 / 53));
+          val = pan | boosted;
         }
       }
       addWrite(tick, command, val);
@@ -113,8 +127,8 @@ function compileZsm(name) {
             const semi = noteMap[nCode] ?? 0;
             let midi = (oct + 1) * 12 + semi;
 
-            if (ch === 7) {
-              // Ch 7 is the signature intro chime/piano ("dong~ dong~ dong~ dong~").
+            if (name === "TITLE" && ch === 7) {
+              // Ch 7 in TITLE is the signature intro chime/piano ("dong~ dong~ dong~ dong~").
               // MULT=0 in YM2151 carrier means it sounds 1 octave lower in warm piano range (~440 Hz).
               midi = Math.max(12, midi - 12);
               const fN = midiToFreqN(midi);
@@ -122,26 +136,36 @@ function compileZsm(name) {
               addWrite(tick, baseReg + 1, (fN >> 8) & 0x3F);
               addWrite(tick, baseReg + 3, 0x80); // Warm Triangle wave
               // Strike + natural piano decay envelope across the 16-frame note window
-              const decay = [56, 48, 40, 32, 24, 16, 8, 0];
+              const decay = [62, 58, 54, 48, 42, 34, 22, 0];
               for (let d = 0; d < decay.length; d++) {
                 addWrite(tick + d * 2, baseReg + 2, ymChPan[ch] | decay[d]);
               }
+            } else if (name === "HIGHSCORE" && ch === 6 && oct >= 6) {
+              // Ch 6 oct 7 in HIGHSCORE is a metallic hi-hat / cymbal tick (FM FB=7, fast decay).
+              // Render as crisp noise percussion with 2-frame auto-mute decay to eliminate
+              // the endless 2349 Hz piercing squeal.
+              addWrite(tick, baseReg + 0, 0x40);
+              addWrite(tick, baseReg + 1, 0x1F); // High noise pitch
+              addWrite(tick, baseReg + 3, 0xC0); // Noise waveform
+              addWrite(tick + 0, baseReg + 2, ymChPan[ch] | 48);
+              addWrite(tick + 1, baseReg + 2, ymChPan[ch] | 24);
+              addWrite(tick + 2, baseReg + 2, 0x00); // Mute
             } else {
               const fN = midiToFreqN(midi);
               let wave = 0x3F;
-              let vol = 36;
+              let vol = 52;
               if (name === "KILLED") {
                 wave = 0x80; // Triangle wave for soft backing chord
-                vol = 22;
+                vol = 42;
               } else if (ch === 6) {
-                wave = 0x80;
-                vol = 52;
-              } else if (ch === 4 || ch === 5) {
-                wave = 0x3F;
-                vol = 44;
+                wave = 0x80; // Main lead melody (TITLE bass)
+                vol = 61;
+              } else if (ch === 4 || ch === 5 || ch === 7) {
+                wave = 0x3F; // Chords & arpeggios
+                vol = 56;
               } else {
-                wave = 0x3F;
-                vol = 36;
+                wave = 0x3F; // Bass / other accompaniment
+                vol = 52;
               }
 
               addWrite(tick, baseReg + 0, fN & 0xFF);
@@ -167,8 +191,12 @@ function compileZsm(name) {
   // Pack frameEvents into compact stream: { 0x80|reg, val } pairs and delay bytes (0..126)
   const stream = [];
   let delayCount = 0;
+  let loopStreamOffset = 0;
 
   for (let f = 0; f < frameEvents.length; f++) {
+    if (loopTick >= 0 && f === loopTick) {
+      loopStreamOffset = stream.length;
+    }
     const writes = frameEvents[f];
     if (!writes || writes.length === 0) {
       delayCount++;
@@ -187,7 +215,31 @@ function compileZsm(name) {
     for (const w of writes) {
       regMap.set(w.reg, w.val);
     }
-    for (const [reg, val] of regMap) {
+
+    // Hardware VERA safety: order register writes within each frame so that:
+    // 1. Channel mutes (volume = 0) happen first across all voices.
+    // 2. Frequency (lo, hi) and waveform are configured before turning volume on.
+    // 3. Channel volume > 0 is ALWAYS written last.
+    // This prevents intermediate frequency/waveform glitches (e.g. 4.5kHz clicks/pops).
+    const entries = Array.from(regMap.entries());
+    entries.sort(([regA, valA], [regB, valB]) => {
+      const vA = Math.floor(regA / 4), vB = Math.floor(regB / 4);
+      const rA = regA % 4, rB = regB % 4;
+      function prio(r, val) {
+        if (r === 2) return (val & 0x3F) === 0 ? 0 : 4;
+        if (r === 0) return 1;
+        if (r === 1) return 2;
+        if (r === 3) return 3;
+        return 5;
+      }
+      const pA = prio(rA, valA), pB = prio(rB, valB);
+      if (pA === 0 && pB !== 0) return -1;
+      if (pB === 0 && pA !== 0) return 1;
+      if (vA !== vB) return vA - vB;
+      return pA - pB;
+    });
+
+    for (const [reg, val] of entries) {
       stream.push(0x80 | (reg & 0x3F), val & 0xFF);
     }
     delayCount = 1; // 1 frame delay to reach next tick
@@ -200,7 +252,7 @@ function compileZsm(name) {
   }
 
   stream.push(0xFF);
-  return Buffer.from(stream);
+  return { buf: Buffer.from(stream), loopStreamOffset };
 }
 
 if (!fs.existsSync(buildDir)) fs.mkdirSync(buildDir, { recursive: true })
@@ -211,16 +263,16 @@ let offset = 0
 
 for (const { name } of TRACKS) {
   const data = compileZsm(name)
-  blob.push(data)
-  table.push({ name, offset, length: data.length })
-  console.log(`  ${name}.ZSM -> ${data.length} bytes PSG stream (offset ${offset})`)
-  offset += data.length
+  blob.push(data.buf)
+  table.push({ name, offset, length: data.buf.length, loop_offset: data.loopStreamOffset })
+  console.log(`  ${name}.ZSM -> ${data.buf.length} bytes PSG stream (offset ${offset}, loop_offset ${data.loopStreamOffset})`)
+  offset += data.buf.length
 }
 
 fs.writeFileSync(path.join(buildDir, "music.blob"), Buffer.concat(blob))
 console.log(`  Total music blob: ${offset} bytes`)
 
-// C header: track offsets/lengths so audio.c can address each stream in VRAM.
+// C header: track offsets/lengths/loop_offsets so audio.c can address each stream in VRAM.
 let cCode = `// AUTO-GENERATED by tools/gen_music.mjs — do not edit.
 #pragma once
 #include <stdint.h>
@@ -229,11 +281,12 @@ typedef struct {
     const char *name;
     uint16_t offset;
     uint16_t length;
+    uint16_t loop_offset;
 } MusicTrack;
 
 #define MUSIC_TRACK_COUNT ${table.length}
 static const MusicTrack musicTracks[MUSIC_TRACK_COUNT] = {
-${table.map((t) => `    { "${t.name}", ${t.offset}, ${t.length} },`).join("\n")}
+${table.map((t) => `    { "${t.name}", ${t.offset}, ${t.length}, ${t.loop_offset} },`).join("\n")}
 };
 `
 fs.writeFileSync(path.join(projectRoot, "src", "music_table.h"), cCode)

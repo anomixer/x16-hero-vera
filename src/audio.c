@@ -22,6 +22,7 @@
 
 /* --- PSG low-level helpers --- */
 static void psg_write(uint8_t ch, uint16_t freq, uint8_t pan_vol, uint8_t wave_pw) {
+    VERA.control = 0;
     uint16_t addr = PSG_BASE + (uint16_t)ch * 4;
     vera_set_addr(VERA_INC_BANK1, addr);
     VERA.data0 = (uint8_t)(freq & 0xFF);
@@ -31,6 +32,7 @@ static void psg_write(uint8_t ch, uint16_t freq, uint8_t pan_vol, uint8_t wave_p
 }
 
 static void psg_silence(uint8_t ch) {
+    VERA.control = 0;
     uint16_t addr = PSG_BASE + (uint16_t)ch * 4;
     vera_set_addr(VERA_INC_BANK1, addr);
     VERA.data0 = 0x00;  /* freq_lo = 0 */
@@ -40,6 +42,7 @@ static void psg_silence(uint8_t ch) {
 }
 
 static void psg_silence_all(void) {
+    VERA.control = 0;
     vera_set_addr(VERA_INC_BANK1, PSG_BASE);
     for (uint8_t i = 0; i < 64; i++) VERA.data0 = 0x00;
 }
@@ -129,17 +132,19 @@ static uint8_t  musicActive  = 0;
 static uint16_t musicOffset  = 0;   /* offset within the blob */
 static uint16_t musicEnd     = 0;   /* end offset of current track */
 static uint16_t musicBase    = 0;   /* track start offset (for looping) */
+static uint16_t musicLoopOffset = 0;/* seamless loop target offset */
 static uint8_t  musicLoop    = 0;
 static uint8_t  musicDelay   = 0;
 
 void audioPlayMusic(uint8_t trackIdx) {
     if (trackIdx >= MUSIC_TRACK_COUNT) return;
     const MusicTrack *t = &musicTracks[trackIdx];
-    musicBase   = t->offset;
-    musicOffset = t->offset;
-    musicEnd    = t->offset + t->length;
-    musicDelay  = 0;
-    musicActive = 1;
+    musicBase       = t->offset;
+    musicOffset     = t->offset;
+    musicEnd        = t->offset + t->length;
+    musicLoopOffset = t->offset + t->loop_offset;
+    musicDelay      = 0;
+    musicActive     = 1;
     /* Menu/title and highscore music loop; jingles play once. */
     musicLoop   = (trackIdx == MUSIC_TITLE || trackIdx == MUSIC_HIGHSCORE) ? 1 : 0;
     /* Silence all 16 channels and registers completely to avoid residual pops/noise. */
@@ -170,9 +175,8 @@ static void musicTick(void) {
     while (musicDelay == 0) {
         if (musicOffset >= musicEnd) {
             if (musicLoop) {
-                musicOffset = musicBase;
+                musicOffset = musicLoopOffset;
                 musicDelay = 0;
-                psg_silence_all();
                 break;
             }
             musicActive = 0;
@@ -185,9 +189,8 @@ static void musicTick(void) {
 
         if (b == 0xFF) {   /* end of track */
             if (musicLoop) {
-                musicOffset = musicBase;
+                musicOffset = musicLoopOffset;
                 musicDelay = 0;
-                psg_silence_all();
                 break;
             }
             musicActive = 0;

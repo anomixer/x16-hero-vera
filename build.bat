@@ -1,9 +1,18 @@
 @echo off
 rem Build x16-hero for Apple II VERA: generate assets+music, compile C (Slot 2/4), build HDV.
 setlocal
-set SDK=C:\dev\llvm-mos-sdk\install
-set CC=%SDK%\bin\mos-apple2e-clang.bat
 cd /d "%~dp0"
+
+where mos-apple2e-clang >nul 2>&1
+if not errorlevel 1 (
+    set "CC=mos-apple2e-clang"
+) else if exist "C:\dev\llvm-mos-sdk\install\bin\mos-apple2e-clang.bat" (
+    set "CC=C:\dev\llvm-mos-sdk\install\bin\mos-apple2e-clang.bat"
+) else if exist "C:\dev\llvm-mos-sdk\bin\mos-apple2e-clang.bat" (
+    set "CC=C:\dev\llvm-mos-sdk\bin\mos-apple2e-clang.bat"
+) else (
+    set "CC=mos-apple2e-clang"
+)
 
 if not exist build mkdir build
 

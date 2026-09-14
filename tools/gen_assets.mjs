@@ -10,8 +10,21 @@ import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, "..")
-const dataDir = "C:/dev/x16-hero"
+const defaultDataDir = path.join(projectRoot, "assets")
+const fallbackDataDir = "C:/dev/x16-hero"
+const dataDir = fs.existsSync(defaultDataDir) ? defaultDataDir : fallbackDataDir
 const buildDir = path.join(projectRoot, "build")
+
+function findAssetFile(dir, fileName) {
+  const direct = path.join(dir, fileName)
+  if (fs.existsSync(direct)) return direct
+  try {
+    const entries = fs.readdirSync(dir)
+    const found = entries.find(e => e.toLowerCase() === fileName.toLowerCase())
+    if (found) return path.join(dir, found)
+  } catch (e) {}
+  return direct
+}
 
 const ASSETS = [
   { key: "TILES",  file: "TILES.BIN",  skip: 2 },
@@ -35,7 +48,7 @@ const table = []
 let offset = 0
 
 for (const a of ASSETS) {
-  const src = path.isAbsolute(a.file) ? a.file : path.join(dataDir, a.file)
+  const src = path.isAbsolute(a.file) ? a.file : findAssetFile(dataDir, a.file)
   const raw = fs.readFileSync(src)
   const data = raw.subarray(a.skip)
   blob.push(data)

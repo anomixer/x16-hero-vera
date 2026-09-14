@@ -23,6 +23,8 @@
 #define L0_MAP_ADDR            0xA000
 #define PALETTE_ADDR           0xFA00
 #define SPR_ADDR               0xFC00
+#define VRAM_MAPS_MASTER_ADDR  0x9000   /* bank 1: all 11 maps MAP0..MAP10 (24576 bytes) */
+#define TOTAL_MAPS_SIZE        24576
 #define SCREENWIDTH            320
 #define SCREENHEIGHT           240
 #define TILEWIDTH              16
@@ -434,6 +436,21 @@ static uint32_t asset_length(const char *key) {
     return 0;
 }
 
+static void vram_copy(uint8_t src_bank, uint16_t src_addr, uint8_t dst_bank, uint16_t dst_addr, uint16_t length) {
+    VERA.control = 0;
+    VERA.address_hi = (src_bank ? VERA_INC_BANK1 : VERA_INC_BANK0);
+    VERA.address = src_addr;
+
+    VERA.control = 1;
+    VERA.address_hi = (dst_bank ? VERA_INC_BANK1 : VERA_INC_BANK0);
+    VERA.address = dst_addr;
+
+    for (uint16_t i = 0; i < length; i++) {
+        VERA.data1 = VERA.data0;
+    }
+    VERA.control = 0;
+}
+
 static void load_resources(void) {
     disk_copy_to_vram(asset_offset("TILES"), TILES_ADDR, 11648, 0);
     disk_copy_to_vram(asset_offset("SPRITE0"), PLAYER_SPRITES_ADDR, 3328, 0);
@@ -443,6 +460,8 @@ static void load_resources(void) {
     disk_copy_to_vram(asset_offset("PAL"), PALETTE_ADDR, 512, 1);
     /* Music into VRAM Bank 1, 16-bit part $0000 (full addr $10000). */
     disk_copy_to_vram(asset_offset("MUSIC"), 0x0000, asset_length("MUSIC"), 1);
+    /* Preload all 11 level maps (MAP0..MAP10, 24576 bytes) into VRAM Bank 1 ($1:9000). */
+    disk_copy_to_vram(asset_offset("MAP0"), VRAM_MAPS_MASTER_ADDR, TOTAL_MAPS_SIZE, 1);
 
     /* Backup original graphics palettes 1..4 (128 bytes) so we can dim/restore light */
     vera_set_addr(VERA_INC_BANK1, PALETTE_ADDR + 0x20);
@@ -452,21 +471,16 @@ static void load_resources(void) {
 }
 
 static void load_level_map(void) {
-    char key[8];
-    key[0] = 'M'; key[1] = 'A'; key[2] = 'P';
-    if (level >= 10) {
-        key[3] = '1';
-        key[4] = (char)('0' + (level - 10));
-        key[5] = 0;
+    uint16_t src_addr;
+    uint16_t len;
+    if (level == 0) {
+        src_addr = VRAM_MAPS_MASTER_ADDR;
+        len = 4096;
     } else {
-        key[3] = (char)('0' + level);
-        key[4] = 0;
+        src_addr = VRAM_MAPS_MASTER_ADDR + 4096 + (uint16_t)(level - 1) * 2048;
+        len = 2048;
     }
-    uint32_t off = asset_offset(key);
-    uint32_t len = 0;
-    for (uint8_t i = 0; i < ASSET_COUNT; i++)
-        if (str_eq(assetTable[i].key, key)) len = assetTable[i].length;
-    disk_copy_to_vram(off, L0_MAP_ADDR, len, 0);
+    vram_copy(1, src_addr, 0, L0_MAP_ADDR, len);
 }
 
 /* ------------------------------ Tilemap access ------------------------------ */
@@ -2194,7 +2208,10 @@ static void game_tick(void) {
         break;
     case ST_GAMEOVER2:
         if (gameOverDelay > 0) gameOverDelay--;
-        else gameStatus = ST_GAMEOVER3;
+        else {
+            gameStatus = ST_GAMEOVER3;
+            gameOverDelay = 150;
+        }
         break;
     case ST_GAMEOVER3:
         if (gameOverDelay > 0) gameOverDelay--;

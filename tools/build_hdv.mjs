@@ -8,7 +8,7 @@
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
-import { compileApplesoftBasic } from "../../veratest/src/applebasic.mjs"
+import { compileApplesoftBasic } from "./applebasic.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, "..")

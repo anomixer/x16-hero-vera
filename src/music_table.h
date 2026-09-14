@@ -6,13 +6,14 @@ typedef struct {
     const char *name;
     uint16_t offset;
     uint16_t length;
+    uint16_t loop_offset;
 } MusicTrack;
 
 #define MUSIC_TRACK_COUNT 5
 static const MusicTrack musicTracks[MUSIC_TRACK_COUNT] = {
-    { "TITLE", 0, 21649 },
-    { "HIGHSCORE", 21649, 16188 },
-    { "GAMEOVER", 37837, 289 },
-    { "KILLED", 38126, 726 },
-    { "LEVELCOMPLETE", 38852, 1111 },
+    { "TITLE", 0, 21649, 479 },
+    { "HIGHSCORE", 21649, 12330, 311 },
+    { "GAMEOVER", 33979, 289, 0 },
+    { "KILLED", 34268, 683, 0 },
+    { "LEVELCOMPLETE", 34951, 973, 0 },
 };

@@ -26,5 +26,5 @@ static const AssetEntry assetTable[ASSET_COUNT] = {
     { "MAP8", 44128, 2048 },
     { "MAP9", 46176, 2048 },
     { "MAP10", 48224, 2048 },
-    { "MUSIC", 50272, 39963 },
+    { "MUSIC", 50272, 35924 },
 };
