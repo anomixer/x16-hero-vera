@@ -36,8 +36,8 @@ void disk_init(void) {
 
     /* Inspect volume size via Key Block of Volume Directory (block 2). */
     mli_unit = boot_unit;
-    mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
-    mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+    mli_buf_lo = (uint8_t)((uintptr_t)diskBuf);
+    mli_buf_hi = (uint8_t)(((uintptr_t)diskBuf) >> 8);
     mli_blk_lo = 2;
     mli_blk_hi = 0;
     mlib_read_block();
@@ -61,8 +61,8 @@ static uint8_t *disk_asset(uint32_t offset) {
 
     if ((uint16_t)abs != cached_abs_block || unit != cached_unit) {
         mli_unit = unit;
-        mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
-        mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+        mli_buf_lo = (uint8_t)((uintptr_t)diskBuf);
+        mli_buf_hi = (uint8_t)(((uintptr_t)diskBuf) >> 8);
         mli_blk_lo = (uint8_t)abs;
         mli_blk_hi = (uint8_t)(abs >> 8);
         mlib_read_block();
@@ -105,8 +105,8 @@ void disk_copy_to_ram(uint32_t offset, uint8_t *dest, uint32_t length) {
 
 void disk_read_hiscore(uint8_t *dest, uint16_t length) {
     mli_unit = boot_unit;
-    mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
-    mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+    mli_buf_lo = (uint8_t)((uintptr_t)diskBuf);
+    mli_buf_hi = (uint8_t)(((uintptr_t)diskBuf) >> 8);
     mli_blk_lo = (uint8_t)HISCORE_START_BLOCK;
     mli_blk_hi = (uint8_t)(HISCORE_START_BLOCK >> 8);
     mlib_read_block();
@@ -124,8 +124,8 @@ uint8_t disk_write_hiscore(const uint8_t *src, uint16_t length) {
         diskBuf[i] = (i < length) ? src[i] : 0;
     }
     mli_unit = boot_unit;
-    mli_buf_lo = (uint8_t)((uint32_t)(unsigned long)diskBuf);
-    mli_buf_hi = (uint8_t)(((uint32_t)(unsigned long)diskBuf) >> 8);
+    mli_buf_lo = (uint8_t)((uintptr_t)diskBuf);
+    mli_buf_hi = (uint8_t)(((uintptr_t)diskBuf) >> 8);
     mli_blk_lo = (uint8_t)HISCORE_START_BLOCK;
     mli_blk_hi = (uint8_t)(HISCORE_START_BLOCK >> 8);
     mlib_write_block();

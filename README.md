@@ -2,7 +2,7 @@
 
 A faithful port of the Commander X16 game **x16-hero** (a sequel/tribute to Activision's classic *H.E.R.O.*) to the **Apple II with VERA FPGA card** platform.
 
-Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`mos-apple2e-clang`), using the proven [TimePilot-IIvera](https://github.com/anomixer) hardware scaffolding.
+Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`mos-apple2e-clang`), using the proven [TimePilot-IIvera](https://github.com/anomixer/Time-Pilot) hardware scaffolding.
 
 ---
 
@@ -95,4 +95,4 @@ This will automatically:
 
 - **Original Game**: *x16-hero* by Clergy Games for the Commander X16.
 - **Apple II VERA Port**: Ported by **anomixer**.
-- Built on the infrastructure and PSG sound engine of **TimePilot-IIvera**.
+- Built on the infrastructure and PSG sound engine of [TimePilot-IIvera](https://github.com/anomixer/Time-Pilot).

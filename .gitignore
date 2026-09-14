@@ -20,26 +20,7 @@ assets.blob
 800kb.hdv
 
 # Temporary screenshot crops & debug images
-crop_*.png
-debug_*.png
-debugshot.png
-dbg.png
-dyn1.png
-m0_*.png
-map_*.png
-map0_render.png
-render*.png
-sq.png
-square_crop.png
-tile8.png
-logo*.png
-player_crop.png
-cam_*.png
-beam*.png
-intro_bottom.png
-intro_br.png
-player1.png
-r1214low.png
+*.png
 
 # Editor / OS
 .vscode/

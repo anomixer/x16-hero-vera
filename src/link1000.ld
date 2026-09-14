@@ -15,8 +15,15 @@ __rc0 = 0x02;
 INCLUDE imag-regs.ld   /* __rc31 = 0x20 */
 
 MEMORY {
-    /* Zero page variables: $21-$BF.  ($C0-$FF left for system/monitor.) */
-    zp : ORIGIN = __rc31 + 1, LENGTH = 0xBF - (__rc31 + 1)
+    /* Zero page variables: $50-$BF.
+     * $00-$01: Apple II Monitor
+     * $02-$21: LLVM-MOS imaginary registers (__rc0 to __rc31)
+     * $22-$3F: Applesoft / Monitor reserved
+     * $40-$4F: ProDOS MLI internal workspace (reserved for MLI calls)
+     * $50-$BF: Safe for C zero page variables (112 bytes)
+     * $C0-$FF: Apple II Hardware / Monitor / System
+     */
+    zp : ORIGIN = 0x50, LENGTH = 0xC0 - 0x50
     /* Main program RAM: $1400-$9BFF (34,816 bytes, leaves 8.5KB below $BE00 stack). */
     ram (rw) : ORIGIN = 0x1400, LENGTH = 0x8800
 }

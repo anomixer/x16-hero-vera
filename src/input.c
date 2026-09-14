@@ -37,6 +37,7 @@ static uint8_t btnHoldA = 0;
 static uint8_t btnHoldB = 0;
 static uint8_t btnHoldStart = 0;
 static uint8_t lastKey = 0;
+static uint8_t hasJoystick = 0;
 
 #define JOY_DIR_HOLD_FRAMES 5
 #define JOY_BTN_HOLD_FRAMES 3
@@ -68,7 +69,8 @@ uint8_t inputPollKey(void) {
 
 /* Apple II Native Paddle/Joystick Reading */
 static uint8_t read_pdl(uint8_t pdl) {
-    uint8_t count;
+    uint8_t count = 0;
+#ifdef __mos__
     __asm__ volatile(
         "ldx %1\n\t"
         "lda 0xC070\n\t"
@@ -87,10 +89,13 @@ static uint8_t read_pdl(uint8_t pdl) {
         : "r"(pdl)
         : "a", "x", "y"
     );
+#else
+    (void)pdl;
+#endif
     return count;
 }
 
-/* Sample keyboard and native paddles each frame to build _joy0 (active-LOW). */
+/* Sample keyboard and native joystick paddles each frame to build _joy0 (active-LOW). */
 void inputUpdate(void) {
     if (kbd_pressed()) {
         uint8_t k = kbd_read() & 0x7F;
@@ -123,8 +128,18 @@ void inputUpdate(void) {
         }
     }
 
-    if (vertHold > 0) { vertHold--; if (vertHold == 0) vertDir = 0; }
-    if (horizHold > 0) { horizHold--; if (horizHold == 0) horizDir = 0; }
+    /* Apple IIe Any-Key-Down ($C010 bit 7): eliminates keyboard auto-repeat delay!
+     * When holding a key down, keep direction active continuously without pauses.
+     * When the user releases the key, immediately cancel direction. */
+    uint8_t anyKeyDown = ((*(volatile uint8_t *)0xC010 & 0x80) != 0);
+    if (anyKeyDown) {
+        if (vertDir) vertHold = JOY_DIR_HOLD_FRAMES;
+        if (horizDir) horizHold = JOY_DIR_HOLD_FRAMES;
+    } else {
+        vertDir = 0; vertHold = 0;
+        horizDir = 0; horizHold = 0;
+    }
+
     if (btnHoldA > 0) { btnHoldA--; if (btnHoldA == 0) btnMask &= ~JOY_BUTTON_A; }
     if (btnHoldB > 0) { btnHoldB--; if (btnHoldB == 0) btnMask &= ~JOY_BUTTON_B; }
     if (btnHoldStart > 0) { btnHoldStart--; if (btnHoldStart == 0) btnMask &= ~JOY_START; }
@@ -138,15 +153,16 @@ void inputUpdate(void) {
     if ((*(volatile uint8_t *)0xC062 & 0x80) != 0) activeMask |= JOY_BUTTON_B;
     if ((*(volatile uint8_t *)0xC063 & 0x80) != 0) activeMask |= JOY_BUTTON_B;
 
-    /* Native Joystick Paddles: Paddle 0 (X), Paddle 1 (Y).
-     * Center is ~128. Unconnected paddles read (0,0) or (255,255). */
+    /* Apple II Native Joystick Paddles: Paddle 0 (X), Paddle 1 (Y).
+     * Center is ~128. Thresholds 110 / 145 provide an immediate, crisp response
+     * without requiring the stick to be pushed to the mechanical limits. */
     uint8_t pdlX = read_pdl(0);
     uint8_t pdlY = read_pdl(1);
     if ((pdlX > 10 || pdlY > 10) && (pdlX < 250 || pdlY < 250)) {
-        if (pdlX < 100)      activeMask |= JOY_LEFT;
-        else if (pdlX > 155) activeMask |= JOY_RIGHT;
-        if (pdlY < 100)      activeMask |= JOY_UP;
-        else if (pdlY > 155) activeMask |= JOY_DOWN;
+        if (pdlX < 110)      activeMask |= JOY_LEFT;
+        else if (pdlX > 145) activeMask |= JOY_RIGHT;
+        if (pdlY < 110)      activeMask |= JOY_UP;
+        else if (pdlY > 145) activeMask |= JOY_DOWN;
     }
 
     _joy0 = (uint8_t)(JOY_NOTHING_PRESSED & ~activeMask);
@@ -154,5 +170,7 @@ void inputUpdate(void) {
 
 uint8_t inputGetJoy(void) { return _joy0; }
 
-void inputInit(void) { inputFlush(); }
+void inputInit(void) {
+    inputFlush();
+}
 

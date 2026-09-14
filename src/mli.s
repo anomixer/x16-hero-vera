@@ -34,6 +34,9 @@ mlib_params:                  ; MLI READ_BLOCK param block (count set at runtime
         .byte 0               ; +6 status (written by MLI)
         .byte 0               ; +7 padding
 
+mli_zp_save:
+        .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
         .section .text
         .global mlib_read_block
 mlib_read_block:
@@ -49,10 +52,22 @@ mlib_read_block:
         STA mlib_params+4
         LDA mli_blk_hi
         STA mlib_params+5
+        LDX #15
+.Lsave_read:
+        LDA $40,X
+        STA mli_zp_save,X
+        DEX
+        BPL .Lsave_read
         JSR $BF00
         .byte $80             ; READ_BLOCK
         .word mlib_params
         STA mli_status
+        LDX #15
+.Lrest_read:
+        LDA mli_zp_save,X
+        STA $40,X
+        DEX
+        BPL .Lrest_read
         RTS
 
         .global mlib_write_block
@@ -69,10 +84,22 @@ mlib_write_block:
         STA mlib_params+4
         LDA mli_blk_hi
         STA mlib_params+5
+        LDX #15
+.Lsave_write:
+        LDA $40,X
+        STA mli_zp_save,X
+        DEX
+        BPL .Lsave_write
         JSR $BF00
         .byte $81             ; WRITE_BLOCK
         .word mlib_params
         STA mli_status
+        LDX #15
+.Lrest_write:
+        LDA mli_zp_save,X
+        STA $40,X
+        DEX
+        BPL .Lrest_write
         RTS
 
 

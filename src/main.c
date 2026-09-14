@@ -13,8 +13,6 @@
 #include "audio.h"
 #include "text.h"
 #include "asset_table.h"
-#include "music_table.h"
-#include "sfx_table.h"
 
 /* ------------------------------ VRAM layout ------------------------------ */
 #define L1_MAP_ADDR            0x0000
@@ -249,7 +247,7 @@ static uint8_t  gameCompletedDelay;   /* GAME_COMPLETED_DELAY=240 */
 static uint8_t  gameOverDelay;        /* GAME_OVER_DELAY=300 */
 static uint8_t  deathDelay;           /* DEAD_DELAY=120 */
 static uint8_t  lastLevelMinutes, lastLevelSeconds;
-static uint8_t  leaderboard_start_high = 3;
+static uint8_t  leaderboard_start_high = 6;
 
 static void turn_on_light(void);
 static void turn_off_light(void);
@@ -311,8 +309,11 @@ static uint8_t  creatureOffsetIndex[MAX_SPRITE_COUNT];
 static uint8_t  creatureLit[MAX_SPRITE_COUNT];
 static uint8_t  creatureFlip[MAX_SPRITE_COUNT];   /* h-flip from tile (creatures.asm) */
 static uint8_t  creatureDisarmed[MAX_SPRITE_COUNT];
+static uint8_t  creatureVisible[MAX_SPRITE_COUNT];
 static uint8_t  lastKillerCreature = 0xFF;
 static uint8_t  invulnerableTimer = 0;
+static uint16_t lastLightRow = 0xFFFF, lastLightCol = 0xFFFF;
+static uint8_t  lastBarSec = 0xFF, lastBarLives = 0xFF, lastBarLevel = 0xFF;
 
 /* Laser / explosive. */
 static uint8_t  laserEnabled, laserFrame, laserTime;
@@ -453,8 +454,14 @@ static void load_resources(void) {
 static void load_level_map(void) {
     char key[8];
     key[0] = 'M'; key[1] = 'A'; key[2] = 'P';
-    key[3] = '0' + level;
-    key[4] = 0;
+    if (level >= 10) {
+        key[3] = '1';
+        key[4] = (char)('0' + (level - 10));
+        key[5] = 0;
+    } else {
+        key[3] = (char)('0' + level);
+        key[4] = 0;
+    }
     uint32_t off = asset_offset(key);
     uint32_t len = 0;
     for (uint8_t i = 0; i < ASSET_COUNT; i++)
@@ -505,11 +512,10 @@ static void set_level_properties(void) {
 
 static void blackout_level(void) {
     if (!isDarkLevel) return;
-    /* Set palette nibble of every tile to BLACK_TILE_PALETTE_INDEX. */
-    for (uint16_t r = 0; r < levelHeight; r++) {
-        for (uint16_t c = 0; c < levelWidth; c++) {
-            set_tile(r, c, tile_at(r, c), BLACK_TILE_PALETTE_INDEX << 4);
-        }
+    vera_set_addr(VERA_INC_2, L0_MAP_ADDR + 1);
+    uint16_t total = levelHeight * levelWidth;
+    for (uint16_t i = 0; i < total; i++) {
+        VERA.data0 = (uint8_t)(BLACK_TILE_PALETTE_INDEX << 4);
     }
 }
 
@@ -519,6 +525,10 @@ static void light_up_level(void) {
     if (lightRowsLength == 0 || lightColsLength == 0) return;
     uint16_t prow = ypos / TILEHEIGHT;
     uint16_t pcol = xpos / TILEWIDTH;
+    if (prow == lastLightRow && pcol == lastLightCol) return;
+    lastLightRow = prow;
+    lastLightCol = pcol;
+
     uint16_t rows = lightRowsLength, cols = lightColsLength;
     int16_t startR = (int16_t)prow - (int16_t)(rows >> 1);
     int16_t startC = (int16_t)pcol - (int16_t)(cols >> 1);
@@ -528,7 +538,9 @@ static void light_up_level(void) {
         for (uint16_t c = 0; c < cols; c++) {
             int16_t cc = startC + (int16_t)c;
             if (cc < 0 || cc >= (int16_t)levelWidth) continue;
-            set_tile((uint16_t)rr, (uint16_t)cc, tile_at((uint16_t)rr, (uint16_t)cc), TILE_PALETTE_INDEX << 4);
+            uint16_t idx = tilemap_index((uint16_t)rr, (uint16_t)cc);
+            vera_set_addr(VERA_INC_BANK0, L0_MAP_ADDR + idx * 2 + 1);
+            VERA.data0 = (uint8_t)(TILE_PALETTE_INDEX << 4);
         }
     }
 }
@@ -570,6 +582,11 @@ static void swap_light(void) {
 static void init_level(void) {
     turn_on_light();
     levelCompleted = 0;
+    lastLightRow = 0xFFFF;
+    lastLightCol = 0xFFFF;
+    lastBarSec = 0xFF;
+    lastBarLives = 0xFF;
+    lastBarLevel = 0xFF;
     load_level_map();
     set_level_properties();
     blackout_level();
@@ -584,6 +601,7 @@ static void hide_creatures(void) {
     for (uint16_t i = 0; i < MAX_SPRITE_COUNT; i++) {
         vera_set_addr(VERA_INC_BANK1, CREATURE_ADDR_L + (uint16_t)i * 8 + 6);
         VERA.data0 = 0;
+        creatureVisible[i] = 0;
     }
 }
 
@@ -767,6 +785,12 @@ static uint8_t check_player_creature(void) {
 
     for (uint8_t i = 0; i < creatureCount; i++) {
         if (creatureLife[i] == CREATURE_ALIVE) {
+            /* Quick coarse bounding box: creature cannot move more than 32px from anchor */
+            int16_t rdx = (int16_t)xpos - (int16_t)creatureX[i];
+            if (rdx < -48 || rdx > 48) continue;
+            int16_t rdy = (int16_t)ypos - (int16_t)creatureY[i];
+            if (rdy < -48 || rdy > 48) continue;
+
             uint8_t type = creatureType[i];
             int16_t cx = (int16_t)creatureX[i];
             int16_t cy = (int16_t)creatureY[i];
@@ -832,11 +856,20 @@ static void move_player_back(void) {
     }
 }
 
+static uint8_t check_tile(uint16_t px, uint16_t py);
+
 static uint8_t check_laser_creature(void) {
     if (laserpossible == 0) return 0;
-    int16_t maxReach = (laserpossible == 1) ? 36 : 60;
+    /* laserpossible == 1: 1 clear tile in front -> reach 26px (within confirmed clear tile).
+     * laserpossible == 2: 2 clear tiles in front -> reach 46px (within confirmed clear corridor).
+     * Since laserpossible already verified these tiles are free of walls, no raycast is needed. */
+    int16_t maxReach = (laserpossible == 1) ? 26 : 46;
+
     for (uint8_t i = 0; i < creatureCount; i++) {
         if (creatureLife[i] == CREATURE_ALIVE && creatureType[i] != TYPE_MINER && creatureType[i] != TYPE_LAMP) {
+            int16_t rdx = (int16_t)creatureX[i] - (int16_t)xpos;
+            if (rdx < -64 || rdx > 64) continue;
+
             uint8_t type = creatureType[i];
             int16_t cx = (int16_t)creatureX[i];
             int16_t cy = (int16_t)creatureY[i];
@@ -851,19 +884,26 @@ static uint8_t check_laser_creature(void) {
                 cy = (int16_t)(cy + batOff[m]);
             }
 
-            int16_t dy = cy - (int16_t)ypos + 8;
+            /* Vertical distance: bat visual body center is cy + 9, other creatures cy + 8 */
+            int16_t cyCenter = (type == TYPE_BAT_DOWN || type == TYPE_BAT_RIGHT) ? (cy + 9) : (cy + 8);
+            int16_t dy = cyCenter - (int16_t)ypos;
             if (dy < 0) dy = -dy;
-            if (dy < 12) {
-                int16_t dx;
-                if (isMovingLeft) dx = (int16_t)xpos - cx;
-                else             dx = cx - (int16_t)xpos;
-                if (dx >= 4 && dx <= maxReach) {
-                    creatureLife[i] = CREATURE_DYING_START;
-                    creatureLit[i] = 1;
-                    audioPlaySfx(SFX_CREATUREDEAD);
-                    return 1;
-                }
-            }
+            if (dy > 14) continue;
+
+            /* Horizontal distance in facing direction */
+            int16_t dx;
+            if (isMovingLeft) dx = (int16_t)xpos - cx;
+            else             dx = cx - (int16_t)xpos;
+            if (dx < 4 || dx > maxReach) continue;
+
+            /* Hit! */
+            creatureLife[i] = CREATURE_DYING_START;
+            creatureLit[i] = 1;
+            /* Freeze position at exact point of impact */
+            creatureX[i] = (uint16_t)cx;
+            creatureY[i] = (uint16_t)cy;
+            audioPlaySfx(SFX_CREATUREDEAD);
+            return 1;
         }
     }
     return 0;
@@ -888,12 +928,39 @@ static void update_creatures(void) {
         uint8_t type = creatureType[i];
         uint8_t m = creatureOffsetIndex[i];
 
+        /* Screen position: world anchor - cam + center offset. */
+        int16_t sx = (int16_t)creatureX[i] - (int16_t)camxpos + CREATURE_SCREEN_X_OFFSET;
+        int16_t sy = (int16_t)creatureY[i] - (int16_t)camypos + CREATURE_SCREEN_Y_OFFSET;
+
+        if (life < CREATURE_DYING_START) {
+            /* Movement offset added to screen position for living creatures only. */
+            if (type == TYPE_ALIEN) {
+                sx = (int16_t)(sx + alienX[m]);
+                sy = (int16_t)(sy + alienOffsetY(m));
+            } else if (type == TYPE_BAT_RIGHT) sx = (int16_t)(sx + batOff[m]);
+            else if (type == TYPE_BAT_DOWN)  sy = (int16_t)(sy + batOff[m]);
+
+            creatureOffsetIndex[i] = (uint8_t)(m + 1) & (MOVEMENT_COUNT - 1);
+        }
+
+        /* Offscreen culling: screen is 320x240, sprite is 16x16.
+         * If far offscreen, hide once and skip VERA writes + pattern/lighting math. */
+        if (sx < -16 || sx > 320 || sy < -16 || sy > 240) {
+            if (creatureVisible[i]) {
+                hide_sprite((uint16_t)(CREATURE_ADDR_L + (uint16_t)i * 8));
+                creatureVisible[i] = 0;
+            }
+            continue;
+        }
+        creatureVisible[i] = 1;
+
         /* Sprite frame address + dying progression. */
         uint16_t patAddr;
         if (life >= CREATURE_DYING_START) {
             if (life == CREATURE_DYING_STOP) {          /* dying finished */
                 creatureLife[i] = CREATURE_DEAD;
                 hide_sprite((uint16_t)(CREATURE_ADDR_L + (uint16_t)i * 8));
+                creatureVisible[i] = 0;
                 continue;
             }
             creatureLife[i] = (uint8_t)(life + 1);
@@ -905,29 +972,13 @@ static void update_creatures(void) {
             else patAddr = (uint16_t)(creatureAddrTable[type] + (uint16_t)(creatureFrame[i] & (FRAME_COUNT - 1)) * 4);
         }
 
-        /* Screen position: world anchor - cam + center offset.  Hide if far
-         * offscreen (faithful PositionSprite: hide iff high byte 2..14). */
-        int16_t sx = (int16_t)creatureX[i] - (int16_t)camxpos + CREATURE_SCREEN_X_OFFSET;
-        int16_t sy = (int16_t)creatureY[i] - (int16_t)camypos + CREATURE_SCREEN_Y_OFFSET;
-        uint8_t shi = (uint8_t)((uint16_t)sx >> 8);
-        uint8_t svi = (uint8_t)((uint16_t)sy >> 8);
-        if (shi >= 2 && shi <= 14) sx = 512;
-        if (svi >= 2 && svi <= 14) sy = 512;
-
-        /* Movement offset added to the screen position. */
-        if (type == TYPE_ALIEN) {
-            sx = (int16_t)(sx + alienX[m]);
-            sy = (int16_t)(sy + alienOffsetY(m));
-        } else if (type == TYPE_BAT_RIGHT) sx = (int16_t)(sx + batOff[m]);
-        else if (type == TYPE_BAT_DOWN)  sy = (int16_t)(sy + batOff[m]);
-
-        creatureOffsetIndex[i] = (uint8_t)(m + 1) & (MOVEMENT_COUNT - 1);
-
         /* Light up creature when near the player (sticky). */
-        int16_t dx = (int16_t)xpos - (int16_t)creatureX[i];
-        int16_t dy = (int16_t)ypos - (int16_t)creatureY[i];
-        if (dx < 0) dx = -dx; if (dy < 0) dy = -dy;
-        if (dx < LIGHT_CREATURE_COLS && dy < LIGHT_CREATURE_ROWS) creatureLit[i] = 1;
+        if (!creatureLit[i]) {
+            int16_t dx = (int16_t)xpos - (int16_t)creatureX[i];
+            int16_t dy = (int16_t)ypos - (int16_t)creatureY[i];
+            if (dx < 0) dx = -dx; if (dy < 0) dy = -dy;
+            if (dx < LIGHT_CREATURE_COLS && dy < LIGHT_CREATURE_ROWS) creatureLit[i] = 1;
+        }
 
         uint8_t palette = creatureLit[i] ? CREATURE_PALETTE_INDEX : BLACK_CREATURE_PALETTE_INDEX;
         /* attr0 = collision mask + h-flip (creatures.asm: ora #Z_DEPTH, ora spr_coll_mask). */
@@ -1270,7 +1321,10 @@ static void player_tick(void) {
         flyingTime = FLYINGTIME;
     } else {
         isTakingOff = 0;
-        if ((j & JOY_DOWN) == 0) move_down();
+        if ((j & JOY_DOWN) == 0) {
+            move_down();
+            if (isFlying && flyingspeed < MAX_FLYINGSPEED) flyingspeed++;
+        }
     }
 
     /* Horizontal. */
@@ -1314,15 +1368,17 @@ static void player_tick(void) {
 
     /* Check laser possible (player.asm CheckLaserPossible): tile(s) in front.
      * 0 = wall right in front (beam blocked), 1 = one clear tile, 2 = two. */
-    {
+    if (laserEnabled || (j & JOY_BUTTON_A) == 0) {
         int16_t tileOffset = isMovingLeft ? -16 : 16;
-        uint8_t t1 = cat_at((int16_t)xpos + tileOffset, (int16_t)ypos - 8);
+        uint8_t t1 = cat_at((int16_t)xpos + tileOffset, (int16_t)ypos);
         if (t1 == TILECAT_BLOCK || t1 == TILECAT_WALL || t1 == TILECAT_DEATH) laserpossible = 0;
         else {
-            uint8_t t2 = cat_at((int16_t)xpos + 2*tileOffset, (int16_t)ypos - 8);
+            uint8_t t2 = cat_at((int16_t)xpos + 2*tileOffset, (int16_t)ypos);
             if (t2 == TILECAT_BLOCK || t2 == TILECAT_WALL || t2 == TILECAT_DEATH) laserpossible = 1;
             else laserpossible = 2;
         }
+    } else {
+        laserpossible = 0;
     }
 
     /* Fire laser (button A). */
@@ -1390,7 +1446,7 @@ static void text_time(uint8_t row, uint8_t col, uint8_t min, uint8_t sec, uint8_
  *   col 17..21: "MM:SS" (e.g. "01:12")
  *   col 31..35: "LIVES"
  *   col 37..38: lives number (e.g. "05") */
-static void update_status_bar(void) {
+static void draw_status_bar_static(void) {
     text_print(28, 1, "LEVEL", 1);
     text_putc(28, 6, ' ', 1);
     text_shortnum(28, 7, level, 1);
@@ -1398,6 +1454,19 @@ static void update_status_bar(void) {
     text_print(28, 31, "LIVES", 1);
     text_putc(28, 36, ' ', 1);
     text_shortnum(28, 37, lives, 1);
+    lastBarSec = seconds;
+    lastBarLives = lives;
+    lastBarLevel = level;
+}
+static void update_status_bar(void) {
+    if (level != lastBarLevel || lives != lastBarLives) {
+        draw_status_bar_static();
+        return;
+    }
+    if (seconds != lastBarSec) {
+        text_time(28, 17, minutes, seconds, 1);
+        lastBarSec = seconds;
+    }
 }
 
 /* Big 2-row titles (board.asm).  Top array = row R, bottom array = row R+1. */
@@ -1436,17 +1505,32 @@ static void print_game_completed(void) {
 #define PAUSEMENU_ITEMCOUNT 2
 static uint8_t selecteditem;
 static uint8_t pauseInputWait;
-static const char pauseMenuItems[2][12] = {
-    { ' ','r','e','s','u','m','e',' ','g','a','m','e' },
-    { ' ','q','u','i','t',' ',' ',' ',' ',' ',' ',' ' },
+static const char * const pauseMenuItems[PAUSEMENU_ITEMCOUNT] = {
+    " resume game ",
+    " quit        ",
 };
 static void print_pause_menu(void) {
-    /* Board box (13,4,12,13) + items. */
-    for (uint8_t r = 12; r < 16; r++) text_print(r, 13, "             ", 0x91);
+    /* Board shadow (width 13, height 4, startrow 12, startcol 13) from board.asm.
+     * Color 0x0B (bg=transparent, fg=black shadow). */
+    /* Right shadow at col 26 */
+    text_putc_raw(12, 26, 29, 0x0B);  /* TOP_RIGHT_BORDER */
+    for (uint8_t r = 13; r < 16; r++) {
+        text_putc_raw(r, 26, 31, 0x0B); /* RIGHT_BORDER */
+    }
+    /* Bottom shadow at row 16 */
+    text_putc_raw(16, 13, 28, 0x0B);  /* BOTTOM_LEFT_BORDER */
+    for (uint8_t c = 14; c < 26; c++) {
+        text_putc_raw(16, c, 36, 0x0B); /* BOTTOM_BORDER */
+    }
+    text_putc_raw(16, 26, 27, 0x0B);  /* BOTTOM_RIGHT_BORDER */
+
+    /* Board box (width 13, height 4, startrow 12, startcol 13) */
+    text_print(12, 13, "             ", 0x91);
     for (uint8_t i = 0; i < PAUSEMENU_ITEMCOUNT; i++) {
         uint8_t col = (i == selecteditem) ? 0x91 : 0x9B;
         text_print(13 + i, 13, pauseMenuItems[i], col);
     }
+    text_print(15, 13, "             ", 0x91);
 }
 static void show_pause_menu(void) { selecteditem = 0; pauseInputWait = 12; print_pause_menu(); }
 /* Returns 0 = resume, 1 = quit, 255 = nothing. */
@@ -1573,6 +1657,7 @@ static void show_credit_screen(void) {
     text_print(16, 9, "inspired by h.e.r.o.", 1);
     text_print(18, 7, "for atari and commodore 64", 1);
     text_print(20, 13, "version: 1.01", 1);
+    text_print(23, 5, "apple ii vera port by anomixer", 1);
 }
 static void handle_updown(void) {
     if (menuNavDelay > 0) return;
@@ -1637,7 +1722,8 @@ static void handle_button(void) {
 static void handle_user_input(void) {
     uint8_t j = joy();
     if (j == JOY_NOTHING_PRESSED) { inputwait = 0; return; }
-    if (inputwait && menuNavDelay > 0) return;
+    if (inputwait) return;
+    if (menuNavDelay > 0) return;
     inputwait = 1;
     inactivitytimer = 0;
     /* Confirmation questions: left/right toggles answer. */
@@ -1764,7 +1850,7 @@ static void reset_leaderboard(void) {
         leaderboard_times[i*2] = 20 - i*2; leaderboard_times[i*2+1] = 0;
         leaderboard_start[i] = i + 1;
     }
-    leaderboard_start_high = 3;
+    leaderboard_start_high = 6;
 }
 
 #define LB_STORAGE_SIZE 163
@@ -1801,7 +1887,7 @@ static void load_leaderboard(void) {
         for (uint8_t i = 0; i < LB_ENTRIES_COUNT * 2; i++) leaderboard_times[i] = buf[p++];
         for (uint8_t i = 0; i < LB_ENTRIES_COUNT; i++) leaderboard_start[i] = buf[p++];
         leaderboard_start_high = buf[p++];
-        if (leaderboard_start_high == 0 || leaderboard_start_high > 10) leaderboard_start_high = 3;
+        if (leaderboard_start_high == 0 || leaderboard_start_high > 10) leaderboard_start_high = 6;
     } else {
         reset_leaderboard();
         save_leaderboard();
@@ -2069,6 +2155,10 @@ static void game_tick(void) {
         break;
     case ST_RESTARTLEVEL:
         invulnerableTimer = 120;
+        isFalling = 0;
+        isFlying = 1;
+        flyingspeed = MIN_FLYINGSPEED;
+        fallingspeed = MIN_FALLINGSPEED;
         update_view();
         update_status_bar();
         show_player();
@@ -2157,14 +2247,14 @@ int main(void) {
     disk_init();
     init_screen();
     load_resources();
+    audioInit();
+    inputInit();
+    load_leaderboard();
+    startLevel = 1;
 
     init_menu_background();
     show_menu_screen();
     menumode = M_HANDLE_INPUT;
-
-    audioInit();
-    load_leaderboard();
-    startLevel = 1;
 
     audioPlayMusic(MUSIC_TITLE);
     gameStatus = ST_SHOWMENU;

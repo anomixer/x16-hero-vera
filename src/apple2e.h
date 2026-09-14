@@ -7,6 +7,8 @@
 #ifndef _APPLE2E_H
 #define _APPLE2E_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

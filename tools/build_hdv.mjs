@@ -32,7 +32,8 @@ const TOTAL = disk.length / BLOCK
 // ---- High Scores: fixed seedling block (HISCORE_START_BLOCK=899) ----
 const HISCORE_SIZE = 163
 let hiscoreData = null
-if (fs.existsSync(outPath)) {
+const cleanHiscore = process.argv.includes("--clean-hiscore") || process.env.CLEAN_HISCORE === "1"
+if (fs.existsSync(outPath) && !cleanHiscore) {
   try {
     const prevDisk = fs.readFileSync(outPath)
     if (prevDisk.length >= (HISCORE_START_BLOCK + 1) * BLOCK) {
@@ -45,6 +46,7 @@ if (fs.existsSync(outPath)) {
   } catch (e) {}
 }
 if (!hiscoreData) {
+  console.log(`  Generating factory default HISCORE.BIN`)
   hiscoreData = new Uint8Array(BLOCK)
   let hp = 0
   const defaultNames = [
@@ -61,7 +63,7 @@ if (!hiscoreData) {
   for (const t of defaultTimes) hiscoreData[hp++] = t
   const defaultStart = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   for (const st of defaultStart) hiscoreData[hp++] = st
-  hiscoreData[hp++] = 3
+  hiscoreData[hp++] = 6
   hiscoreData[hp++] = 0x48 // 'H'
   hiscoreData[hp++] = 0x53 // 'S'
 }
