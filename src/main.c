@@ -668,6 +668,10 @@ static uint8_t tile_at_hi(uint16_t row, uint16_t col) {
 
 /* ------------------------------ Player ------------------------------ */
 static void init_player(void) {
+    /* CX16 InitPlayer awards one extra life when entering each new level,
+     * capped at the starting LIFE_COUNT.  A death restart does not call this
+     * initializer, so it correctly does not award a life. */
+    if (lives < LIFE_COUNT) lives++;
     xpos = (uint16_t)levelStartCol * TILEWIDTH + 8;
     ypos = (uint16_t)levelStartRow * TILEHEIGHT + 16;
     lastXpos = xpos; lastYpos = ypos;
@@ -703,12 +707,6 @@ static void update_player_sprite(void) {
     uint8_t isDead = (gameStatus == ST_DEATH_CREATURE ||
                       gameStatus == ST_DEATH_EXPLOSION ||
                       gameStatus == ST_DEATH_LAVA);
-
-    /* If invulnerable, blink the sprite (hide every other 4 frames) */
-    if (!isDead && invulnerableTimer > 0 && (invulnerableTimer & 4)) {
-        hide_player();
-        return;
-    }
 
     /* Animation frame (playersprites.asm UpdatePlayerSprite / ShowDeadPlayer). */
     if (isDead) {
@@ -871,6 +869,31 @@ static void move_player_back(void) {
 }
 
 static uint8_t check_tile(uint16_t px, uint16_t py);
+static uint8_t cat_at(int16_t px, int16_t py);
+
+/* The CX16 version lets CheckLaserPossible determine the visible beam length,
+ * but the VERA port does not have the original sprite-collision result to tell
+ * us which creature was hit.  Check every tile column between the player and
+ * the candidate so a creature in the next room cannot be hit through a wall.
+ * Use the same logical laser row as the CX16 CheckLaserPossible routine:
+ * player y - 8.  This is deliberately not the sprite top-left coordinate;
+ * it is the game's corridor-space reference row.  Using y + 8 here makes the
+ * laser disappear when the player moves down near a floor tile.
+ */
+static uint8_t laser_path_blocked(int16_t targetX) {
+    int16_t firstCol = (int16_t)xpos / TILEWIDTH;
+    int16_t targetCol = targetX / TILEWIDTH;
+    int16_t step = isMovingLeft ? -1 : 1;
+    int16_t col = (int16_t)(firstCol + step);
+    int16_t laserY = (int16_t)ypos - LASER_YOFFSET;
+
+    while (isMovingLeft ? (col >= targetCol) : (col <= targetCol)) {
+        uint8_t cat = cat_at((int16_t)(col * TILEWIDTH + TILEWIDTH / 2), laserY);
+        if (cat == TILECAT_BLOCK || cat == TILECAT_WALL || cat == TILECAT_DEATH) return 1;
+        col = (int16_t)(col + step);
+    }
+    return 0;
+}
 
 static uint8_t check_laser_creature(void) {
     if (laserpossible == 0) return 0;
@@ -881,10 +904,20 @@ static uint8_t check_laser_creature(void) {
 
     for (uint8_t i = 0; i < creatureCount; i++) {
         if (creatureLife[i] == CREATURE_ALIVE && creatureType[i] != TYPE_MINER && creatureType[i] != TYPE_LAMP) {
+            /* Include the full movement envelope before applying bat/alien
+             * offsets; a vertical bat may be visually in range while its
+             * anchor is farther away. */
             int16_t rdx = (int16_t)creatureX[i] - (int16_t)xpos;
-            if (rdx < -64 || rdx > 64) continue;
+            if (rdx < -96 || rdx > 96) continue;
 
             uint8_t type = creatureType[i];
+
+            /* Ground plants sit below the CX16 laser line when H.E.R.O. is
+             * standing/walking.  The original VERA sprite collision therefore
+             * cannot hit them from the ground; only a flying player can line
+             * the beam up with the plant. */
+            if (type == TYPE_PLANT && !isFlying) continue;
+
             int16_t cx = (int16_t)creatureX[i];
             int16_t cy = (int16_t)creatureY[i];
             uint8_t m = creatureOffsetIndex[i];
@@ -898,17 +931,30 @@ static uint8_t check_laser_creature(void) {
                 cy = (int16_t)(cy + batOff[m]);
             }
 
-            /* Vertical distance: bat visual body center is cy + 9, other creatures cy + 8 */
-            int16_t cyCenter = (type == TYPE_BAT_DOWN || type == TYPE_BAT_RIGHT) ? (cy + 9) : (cy + 8);
+            /* CX16 treats the two bat variants differently.  The vertical
+             * bat's cy is its actual sprite center; using cy+9 made its
+             * retracting/upward phase falsely overlap a standing laser.  The
+             * horizontal bat keeps the original cy+9 alignment so it remains
+             * as hittable as in CX16. */
+            int16_t cyCenter = (type == TYPE_BAT_DOWN) ? cy
+                              : ((type == TYPE_BAT_RIGHT) ? (cy + 9) : (cy + 8));
             int16_t dy = cyCenter - (int16_t)ypos;
             if (dy < 0) dy = -dy;
-            if (dy > 14) continue;
+            /* CX16 collision.asm uses cmp #9 for laser-vs-creature, i.e.
+             * an absolute vertical distance of 0..8.  The wider 14px window
+             * made a ground-level bat hittable while H.E.R.O. was standing;
+             * use the original tight window for bats. */
+            if (dy > ((type == TYPE_BAT_DOWN || type == TYPE_BAT_RIGHT) ? 8 : 14)) continue;
 
             /* Horizontal distance in facing direction */
             int16_t dx;
             if (isMovingLeft) dx = (int16_t)xpos - cx;
             else             dx = cx - (int16_t)xpos;
             if (dx < 4 || dx > maxReach) continue;
+
+            /* laserpossible limits the beam length, while this check prevents
+             * the hit test from skipping over a wall tile in that beam. */
+            if (laser_path_blocked(cx)) continue;
 
             /* Hit! */
             creatureLife[i] = CREATURE_DYING_START;
@@ -1384,10 +1430,12 @@ static void player_tick(void) {
      * 0 = wall right in front (beam blocked), 1 = one clear tile, 2 = two. */
     if (laserEnabled || (j & JOY_BUTTON_A) == 0) {
         int16_t tileOffset = isMovingLeft ? -16 : 16;
-        uint8_t t1 = cat_at((int16_t)xpos + tileOffset, (int16_t)ypos);
+        /* Faithful to model/player.asm CheckLaserPossible: ypos - 8. */
+        int16_t laserY = (int16_t)ypos - LASER_YOFFSET;
+        uint8_t t1 = cat_at((int16_t)xpos + tileOffset, laserY);
         if (t1 == TILECAT_BLOCK || t1 == TILECAT_WALL || t1 == TILECAT_DEATH) laserpossible = 0;
         else {
-            uint8_t t2 = cat_at((int16_t)xpos + 2*tileOffset, (int16_t)ypos);
+            uint8_t t2 = cat_at((int16_t)xpos + 2*tileOffset, laserY);
             if (t2 == TILECAT_BLOCK || t2 == TILECAT_WALL || t2 == TILECAT_DEATH) laserpossible = 1;
             else laserpossible = 2;
         }
@@ -2129,7 +2177,6 @@ static void game_tick(void) {
         gameStatus = ST_INITLEVEL;
         break;
     case ST_INITLEVEL:
-        invulnerableTimer = 0;
         lastKillerCreature = 0xFF;
         init_level();
         init_creatures();

@@ -74,13 +74,15 @@ function convertZsm(trackName) {
     if (command < 0x40) {
       // Native PSG write (voice 0 or 1)
       let val = raw[ptr++];
-      if (command === 2 || command === 6) {
-        const pan = val & 0xC0;
-        const vol = val & 0x3F;
-        if (vol > 0) {
-          // Boost native volume logarithmically into the audible 45..63 range
-          const boosted = Math.min(63, Math.round(18 + vol * 45 / 53));
-          val = pan | boosted;
+      if (trackName === "TITLE") {
+        if (command === 2) {
+          const pan = val & 0xC0;
+          const vol = val & 0x3F;
+          val = pan | (vol === 0 ? 0 : Math.min(63, Math.round(vol * 63 / 53)));
+        } else if (command === 6) {
+          const pan = val & 0xC0;
+          const vol = val & 0x3F;
+          val = pan | (vol === 0 ? 0 : Math.min(60, Math.round(vol * 60 / 53)));
         }
       }
       addWrite(tick, command, val);
@@ -120,51 +122,67 @@ function convertZsm(trackName) {
             const semi = noteMap[nCode] ?? 0;
             let midi = (oct + 1) * 12 + semi;
 
-            if (trackName === "TITLE" && ch === 7) {
-              // Signature intro chime/piano ("dong~ dong~ dong~ dong~")
-              midi = Math.max(12, midi - 12);
-              const fN = midiToFreqN(midi);
-              addWrite(tick, baseReg + 0, fN & 0xFF);
-              addWrite(tick, baseReg + 1, (fN >> 8) & 0x3F);
-              addWrite(tick, baseReg + 3, 0x80); // Warm Triangle wave
-              // Strike + natural piano decay envelope across the 16-frame note window
-              const decay = [62, 58, 54, 48, 42, 34, 22, 0];
-              for (let d = 0; d < decay.length; d++) {
-                addWrite(tick + d * 2, baseReg + 2, ymChPan[ch] | decay[d]);
-              }
-            } else if (trackName === "HIGHSCORE" && ch === 6 && oct >= 6) {
-              // Ch 6 oct 7 in HIGHSCORE is a metallic hi-hat / cymbal tick (FM FB=7, fast decay).
-              addWrite(tick, baseReg + 0, 0x40);
-              addWrite(tick, baseReg + 1, 0x1F); // High noise pitch
-              addWrite(tick, baseReg + 3, 0xC0); // Noise waveform
-              addWrite(tick + 0, baseReg + 2, ymChPan[ch] | 48);
-              addWrite(tick + 1, baseReg + 2, ymChPan[ch] | 24);
-              addWrite(tick + 2, baseReg + 2, 0x00); // Mute
+            if (trackName === "HIGHSCORE" && ch === 6 && oct >= 6) {
+              /* This is ZSMKit's high-feedback metallic percussion voice,
+               * not a pitched melody note.  Approximate it with a restrained
+               * VERA noise hit so KC=113 cannot become a piercing tone. */
+              addWrite(tick, baseReg + 0, 0x20);
+              addWrite(tick, baseReg + 1, 0x08);
+              addWrite(tick, baseReg + 3, 0xC0);
+              addWrite(tick + 0, baseReg + 2, ymChPan[ch] | 24);
+              addWrite(tick + 1, baseReg + 2, ymChPan[ch] | 10);
+              addWrite(tick + 2, baseReg + 2, 0x00);
             } else {
               const fN = midiToFreqN(midi);
               let wave = 0x3F; // Pulse ~50%
-              let vol = 52;
+              let vol = 36;
               if (trackName === "KILLED") {
                 wave = 0x80; // Triangle wave for soft backing chord
-                vol = 42;
+                vol = 24;
               } else if (trackName === "GAMEOVER") {
                 wave = (ch === 0 || ch === 1) ? 0x80 : 0x3F;
-                vol = 56;
+                vol = 40;
+              } else if (ch === 7) {
+                wave = 0x3F;
+                vol = 46;
               } else if (ch === 6) {
-                wave = 0x80; // Main lead melody (TITLE bass)
-                vol = 61;
-              } else if (ch === 4 || ch === 5 || ch === 7) {
-                wave = 0x3F; // Chords & arpeggios
-                vol = 56;
-              } else {
-                wave = 0x3F; // Bass / other accompaniment
+                wave = 0x80; // Bass
                 vol = 52;
+              } else if (ch === 4 || ch === 5) {
+                wave = 0x3F;
+                vol = 44;
+              } else {
+                wave = 0x3F;
+                vol = 36;
+              }
+
+              if (trackName === "TITLE") {
+                // Preserve original YM ch5/ch6/ch7 ownership as PSG 7/8/9.
+                // No synthetic retriggers or extra layers.
+                if (ch === 5 || ch === 6) {
+                  wave = 0x3F;
+                  vol = 40;
+                } else if (ch === 7) {
+                  wave = 0x80;
+                  vol = 38;
+                }
               }
 
               addWrite(tick, baseReg + 0, fN & 0xFF);
               addWrite(tick, baseReg + 1, (fN >> 8) & 0x3F);
               addWrite(tick, baseReg + 3, wave);
               addWrite(tick, baseReg + 2, ymChPan[ch] | vol);
+              if (trackName === "TITLE" && ch === 7) {
+                const stringTail = [38, 36, 33, 29, 24, 18, 11, 5, 0];
+                for (let d = 1; d < stringTail.length; d++) {
+                  addWrite(tick + d * 2, baseReg + 2, ymChPan[ch] | stringTail[d]);
+                }
+              } else if (trackName === "TITLE" && (ch === 5 || ch === 6)) {
+                const pianoTail = [40, 38, 34, 28, 20, 11, 0];
+                for (let d = 1; d < pianoTail.length; d++) {
+                  addWrite(tick + d * 2, baseReg + 2, ymChPan[ch] | pianoTail[d]);
+                }
+              }
             }
           } else {
             // Key Off: mute voice

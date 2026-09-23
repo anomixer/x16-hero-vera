@@ -19,7 +19,8 @@ const BLOCK = 512
 const HISCORE_START_BLOCK = 899
 const ASSET_START_BLOCK = 900
 
-const outFileName = "x16-hero-vera.hdv"
+const outputArg = process.argv.find((arg) => arg.startsWith("--output="))
+const outFileName = outputArg ? outputArg.slice("--output=".length) : "x16-hero-vera.hdv"
 const outPath = path.join(projectRoot, outFileName)
 
 if (!fs.existsSync(baseHdvPath)) throw new Error(`Base HDV not found: ${baseHdvPath}`)
@@ -208,4 +209,3 @@ for (let b = ASSET_START_BLOCK; b < ASSET_START_BLOCK + ASSET_BLOCKS; b++) setUs
 fs.writeFileSync(outPath, disk)
 console.log(`\n  Built ${outPath} (${disk.length} bytes)`)
 console.log(`  Root files: ${keep.length} system + ${appFiles.map(f => f.name).join(" + ")} + ASSETS + HISCORE.BIN`)
-

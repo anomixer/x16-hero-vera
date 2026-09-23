@@ -10,7 +10,7 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
 
 - **10 Full Cave Levels + Demo Room**: Traverse subterranean mine shafts, rescue trapped miners, avoid deadly lava, and navigate tight caverns.
 - **Flight & Jetpack Physics**: Faithful helicopter backpack flight, walking, falling, and dynamite placement.
-- **Laser & Explosives**: Blast through destructible cave walls and exterminate subterranean critters with your helmet laser or placed bombs.
+- **Laser & Explosives**: Blast through destructible cave walls and exterminate subterranean critters with your helmet laser or placed bombs. Laser range and collision follow the CX16 behavior, including tile-by-tile wall blocking, ground-plant alignment, and tight ground-level bat alignment.
 - **Dynamic Lighting & Darkness Mechanics**:
   - Dark levels feature flashlight spotlighting around the hero.
   - Smashing wall lamps dynamically dims the entire cave environment via VERA hardware palette darkening.
@@ -23,6 +23,7 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
   - High score leaderboard with in-game signature entry.
   - Persistent high scores automatically saved to and loaded from `HISCORE.BIN` on the ProDOS volume.
   - Authentic HUD displaying Level, Elapsed Time, and Remaining Lives.
+  - Respawn protection: the hero remains temporarily invulnerable after death while staying continuously visible instead of flashing.
 
 ---
 
@@ -126,6 +127,25 @@ This will automatically:
 2. Pack all tilemaps, fonts, palettes, and sprite sheets into `assets.blob`.
 3. Compile both Slot 2 (`MAIN.BIN`) and Slot 4 (`MAIN4.BIN`) binaries.
 4. Construct the bootable ProDOS disk image `x16-hero-vera.hdv`.
+
+### Current CX16-parity details
+
+- Completing a level awards one extra life when below the maximum of 5. Death restarts do
+  not award a life.
+- Laser collision follows the original corridor limits and wall occlusion. Vertical and
+  horizontal bats use separate alignment rules, so a retracting vertical bat is not hit by
+  a standing player's laser while a horizontal bat remains reliably hittable.
+- TITLE PSG conversion preserves the original YM channel timing: YM ch5/ch6/ch7 map to
+  VERA PSG7/8/9 without synthetic retriggers or an extra PSG layer.
+- The official `x16-hero-vera.hdv` is initialized with the CX16 factory high-score table.
+  To build another image with factory scores, use:
+
+  ```batch
+  node tools\build_hdv.mjs --clean-hiscore --output=x16-hero-vera-clear-score.hdv
+  ```
+
+  Existing high scores are preserved by normal builds; `--clean-hiscore` restores the CX16
+  factory leaderboard.
 
 ---
 

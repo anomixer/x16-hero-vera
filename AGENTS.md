@@ -667,6 +667,20 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
 - **Result**:
   - The repository is now **100% self-contained and standalone**. Any user who clones `x16-hero-vera` can execute `build.bat` immediately and generate `x16-hero-vera.hdv` without external dependencies.
 
+### Session 26 - CX16-faithful laser collision and respawn presentation
+
+- Compared the A2VERA implementation with `model/player.asm` and `model/collision.asm` in the CX16 source.
+- `laserpossible` uses the original logical corridor row `ypos - 8`; using `ypos + 8` made the laser disappear when flying downward near a floor.
+- Added a full tile-column path check from the player to the candidate creature, preventing hits through intermediate block, wall, or death tiles while preserving the 26/46 pixel beam limits.
+- Ground plants cannot be hit while the player is standing/walking; they require a flying alignment. Bats use the original laser vertical collision limit of 0..8 pixels (`cmp #9` in `model/collision.asm`), so a ground-level bat is not hit from a standing position.
+- The coarse horizontal pre-filter includes the full +/-30 pixel bat movement envelope before applying animation offsets.
+- Respawn retains 120 frames of temporary invulnerability against creatures and lava, but the player remains continuously visible instead of flashing.
+
+### Session 27 - Verification build
+
+- Rebuilt both Slot 2 and Slot 4 binaries and regenerated `x16-hero-vera.hdv` after the laser and respawn-display changes.
+- `build.bat` completes successfully and generated MAIN.BIN sizes remain within the documented Apple II memory budget.
+
 ## Current Project Status
 
 - Fully playable 10-level platformer on Apple II VERA (Slot 2 and Slot 4 dual-build).
@@ -685,5 +699,23 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
 - 100% Zero Runtime Disk Access during gameplay (all maps preloaded to VRAM Bank 1; instant VRAM-to-VRAM level transitions).
 - 100% Standalone & Self-Contained Repository (all build tools, assets, and scripts bundled locally).
 
+### Session 28 - CX16 gameplay and music parity follow-up
 
-
+- **Lives:** matched CX16 `model/player.asm` `InitPlayer`: entering each new level awards
+  one life when `lives < LIFE_COUNT`, with `LIFE_COUNT = 5`. Death restarts do not award a
+  life because they use the restart path rather than `init_player()`.
+- **Bat laser collision:** the two bat variants use separate vertical reference points.
+  `TYPE_BAT_DOWN` uses its actual `cy` center so its upward-retracting phase cannot be hit by
+  a standing player's laser; `TYPE_BAT_RIGHT` retains the CX16-aligned `cy + 9` reference so
+  the horizontal flying bat remains reliably hittable.
+- **PSG title conversion:** synthetic PSG10 layering and the extra ch6-to-PSG7 retrigger were
+  removed. TITLE now preserves original YM2151 event ownership and timing: YM ch5 -> PSG7,
+  ch6 -> PSG8, ch7 -> PSG9, with independent key-on/key-off clocks and short per-voice
+  envelopes. `music/*.psg` is regenerated for direct `psgplay.exe` audition, while the game
+  uses the packed `build/music.blob`.
+- **High-score HDV builds:** `tools/build_hdv.mjs` supports `--clean-hiscore` and
+  `--output=<filename>`. The official `x16-hero-vera.hdv` was reset to the CX16 factory
+  leaderboard. `--clean-hiscore` restores that same CX16 factory leaderboard instead of
+  preserving the existing `HISCORE.BIN`.
+- **Verification:** `build.bat` completed successfully after these changes; both Slot 2 and
+  Slot 4 binaries and the bootable HDV were regenerated.

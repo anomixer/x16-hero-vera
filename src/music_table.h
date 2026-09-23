@@ -11,9 +11,9 @@ typedef struct {
 
 #define MUSIC_TRACK_COUNT 5
 static const MusicTrack musicTracks[MUSIC_TRACK_COUNT] = {
-    { "TITLE", 0, 21649, 479 },
-    { "HIGHSCORE", 21649, 12330, 311 },
-    { "GAMEOVER", 33979, 289, 0 },
-    { "KILLED", 34268, 683, 0 },
-    { "LEVELCOMPLETE", 34951, 973, 0 },
+    { "TITLE", 0, 22468, 479 },
+    { "HIGHSCORE", 22468, 12330, 311 },
+    { "GAMEOVER", 34798, 289, 0 },
+    { "KILLED", 35087, 683, 0 },
+    { "LEVELCOMPLETE", 35770, 973, 0 },
 };
