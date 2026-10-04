@@ -719,3 +719,34 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
   preserving the existing `HISCORE.BIN`.
 - **Verification:** `build.bat` completed successfully after these changes; both Slot 2 and
   Slot 4 binaries and the bootable HDV were regenerated.
+
+### Session 29 — Lava color animation, title rename & upstream blessing
+
+**Lava color cycling restored (faithful port of `UpdateTileColors` from view.asm):**
+- In the original x16-hero, `UpdateTileColors` runs every 6 frames and cycles VERA tile
+  palette-4 color-15 low-byte through `{7,7,7,8,8,9,10,10,11,11,11,10,10,9,8,8}` (0-terminated
+  loop), producing the orange-yellow lava shimmer. This was completely absent in our port.
+- Added `update_lava_color()` in `src/main.c` just before `level_tick()`, called once per
+  frame inside `level_tick()` after `light_up_level()`.
+- Implementation: `static uint8_t redDelay/redIndex`; `DEATHCOLOR_DELAY = 6`;
+  `DEATH_COLOR_LOW_OFFSET = 31` (`TILES_PALETTES_ADDR + 15*2 + 1`).
+- Lava is present in all gameplay levels (Level 1–10). Test by entering any level and
+  observing the orange tiles shimmer.
+
+**Title rename (`src/startup.bas`):**
+- Boot screen line 20: `"H.E.R.O. (MINE RESCUE)"` → `"MINE RESCUE (H.E.R.O.)"` to match
+  the game's preferred branding ("Mine Rescue" is the subtitle Johan uses on the title screen).
+- Boot status line 76: `"RUNNING H.E.R.O. ..."` → `"RUNNING MINE RESCUE (H.E.R.O.) ..."`.
+
+**README.md updates:**
+- Title heading updated to `Mine Rescue (H.E.R.O.) — Apple II VERA Port`.
+- Added "Animated Lava" bullet to Features section.
+- Credits updated: `Clergy Games` → `**Johan Kårlin** (Clergy Games)` per Johan's request.
+
+**Upstream author blessing received:**
+- Contacted original author **Johan Kårlin** (`johan@vimpeltorpet.se`) at
+  [joolin1/x16-hero](https://github.com/joolin1/x16-hero).
+- Johan confirmed: (1) happy with the port, (2) will link our repo from x16-hero, (3) gave
+  full permission to publish on apple2ts.com New Releases, (4) asked to credit both his name
+  and "Clergy Games" (his self-made label).
+- Upstream remote `upstream` added locally pointing to `https://github.com/joolin1/x16-hero`.

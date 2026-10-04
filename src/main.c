@@ -2087,6 +2087,28 @@ static void restart_game(void) {
     }
 }
 
+/* Lava color cycling (faithful port of UpdateTileColors / view.asm).
+ * Every DEATHCOLOR_DELAY frames, cycle palette-4 color-15 low-byte through
+ * lavaRedValues[], producing the orange-yellow shimmering lava effect.
+ * TILES_PALETTES_ADDR = PALETTE_ADDR+0x80 (tile palette 4 base).
+ * Color-15 low byte is at offset 15*2+1 = 31 from that base. */
+#define DEATHCOLOR_DELAY 6
+#define DEATH_COLOR_LOW_OFFSET 31u  /* TILES_PALETTES_ADDR + 15*2 + 1 */
+static const uint8_t lavaRedValues[] = {
+    7,7,7,8,8,9,10,10,11,11,11,10,10,9,8,8,0  /* 0-terminated cycle */
+};
+static void update_lava_color(void) {
+    static uint8_t redDelay = 0;
+    static uint8_t redIndex = 0;
+    if (++redDelay < DEATHCOLOR_DELAY) return;
+    redDelay = 0;
+    if (lavaRedValues[redIndex] == 0) redIndex = 0;
+    vera_set_addr(VERA_INC_BANK1, TILES_PALETTES_ADDR + DEATH_COLOR_LOW_OFFSET);
+    VERA.data0 = lavaRedValues[redIndex];
+    redIndex++;
+    if (lavaRedValues[redIndex] == 0) redIndex = 0;
+}
+
 static void level_tick(void) {
     /* Check pause. */
     static uint8_t startbtn;
@@ -2099,6 +2121,7 @@ static void level_tick(void) {
     update_creatures();
     time_tick();
     light_up_level();
+    update_lava_color();
     update_status_bar();
 
     /* Laser update. Stop the laser sound once the beam expires. */

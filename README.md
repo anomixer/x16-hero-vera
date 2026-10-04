@@ -1,4 +1,4 @@
-# H.E.R.O. (Mine Rescue) — Apple II VERA Port
+# Mine Rescue (H.E.R.O.) — Apple II VERA Port
 
 A faithful port of the Commander X16 game [x16-hero](https://github.com/joolin1/x16-hero) (a sequel/tribute to Activision's classic *H.E.R.O.*) to the **Apple II with VERA FPGA card** platform.
 
@@ -16,6 +16,7 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
   - Smashing wall lamps dynamically dims the entire cave environment via VERA hardware palette darkening.
   - Proximity illumination: unreached creatures and miners linger in cave shadows until approached.
 - **Frame-Accurate Creature Hitboxes**: Plants, spiders, and claws expand and contract rhythmically—sneak over retracted snake heads and under raised spiders safely.
+- **Animated Lava**: Deadly lava tiles shimmer with a cycling orange-yellow palette animation (every 6 frames), faithfully ported from the original `UpdateTileColors` in view.asm.
 - **Full PSG Soundtrack & Sound Effects**: 5 converted music tracks (Title, Level Complete, Killed, Game Over, High Scores) with loop support and multi-voice sound effects.
 - **100% Zero Runtime Disk Access**: All maps (11 cave scenes), sprites, tiles, and music streams are preloaded into VERA VRAM at boot. Level transitions and restarts perform instantaneous hardware VRAM-to-VRAM block copies (~16ms) without any disk latency, motor spin-up, or head seeking.
 - **Rich User Interface**:
@@ -151,6 +152,6 @@ This will automatically:
 
 ## Credits
 
-- **Original Game**: [x16-hero](https://github.com/joolin1/x16-hero) by Clergy Games for the Commander X16.
+- **Original Game**: [x16-hero](https://github.com/joolin1/x16-hero) by **Johan Kårlin** (Clergy Games) for the Commander X16.
 - **Apple II VERA Port**: Ported by **anomixer**.
 - Built on the infrastructure and PSG sound engine of [TimePilot-IIvera](https://github.com/anomixer/Time-Pilot).
