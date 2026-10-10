@@ -1718,7 +1718,7 @@ static void show_credit_screen(void) {
     text_print(13, 6, "using zsmkit by mooinglemur", 1);
     text_print(16, 9, "inspired by h.e.r.o.", 1);
     text_print(18, 7, "for atari and commodore 64", 1);
-    text_print(20, 13, "version: 1.01", 1);
+    text_print(20, 13, "version: 1.02", 1);
     text_print(23, 5, "apple ii vera port by anomixer", 1);
 }
 static void handle_updown(void) {
@@ -2334,6 +2334,7 @@ int main(void) {
     disk_init();
     init_screen();
     load_resources();
+    disk_close_assets();
     audioInit();
     inputInit();
     load_leaderboard();

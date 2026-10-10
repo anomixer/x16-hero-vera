@@ -1,121 +1,70 @@
-; =============================================================================
-; mli.s — ProDOS MLI READ_BLOCK primitive for Time Pilot IIvera
-;
-; C calls mlib_read_block() after setting the globals below. It issues:
-;     JSR $BF00
-;     $80                 ; READ_BLOCK
-;     <param block>
-; and copies the status byte back to mli_status.
-;
-; Verified to assemble + link under mos-apple2e-clang (a separate .s file;
-; inline asm in C crashes the 6502 backend). BYTE/WORD are ca65 — use .byte/.word.
-; =============================================================================
+; ProDOS MLI wrappers. C fills the parameter blocks and reads mli_status.
         .section .bss
-        .global mli_unit
-        .global mli_buf_lo
-        .global mli_buf_hi
-        .global mli_blk_lo
-        .global mli_blk_hi
         .global mli_status
-mli_unit:   .byte 0          ; MLI unit number (from ProDOS global page $BF30)
-mli_buf_lo: .byte 0          ; 512-byte buffer address (low)
-mli_buf_hi: .byte 0          ; (high)
-mli_blk_lo: .byte 0          ; block number (low)
-mli_blk_hi: .byte 0          ; (high)
-mli_status: .byte 0          ; $00 = success, $27 = I/O error, ...
-
-        .section .bss
-        .global mlib_params
-mlib_params:                  ; MLI READ_BLOCK param block (count set at runtime)
-        .byte 0               ; +0 param count (mlib_read_block writes 3)
-        .byte 0               ; +1 unit (patched)
-        .word 0               ; +2 buffer addr (patched)
-        .word 0               ; +4 block number (patched)
-        .byte 0               ; +6 status (written by MLI)
-        .byte 0               ; +7 padding
-
-mli_zp_save:
-        .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-
-        .section .text
-        .global mlib_read_block
-mlib_read_block:
-        LDA #3                ; param count
-        STA mlib_params+0
-        LDA mli_unit
-        STA mlib_params+1
-        LDA mli_buf_lo
-        STA mlib_params+2
-        LDA mli_buf_hi
-        STA mlib_params+3
-        LDA mli_blk_lo
-        STA mlib_params+4
-        LDA mli_blk_hi
-        STA mlib_params+5
-        LDX #15
-.Lsave_read:
-        LDA $40,X
-        STA mli_zp_save,X
-        DEX
-        BPL .Lsave_read
-        JSR $BF00
-        .byte $80             ; READ_BLOCK
-        .word mlib_params
-        STA mli_status
-        LDX #15
-.Lrest_read:
-        LDA mli_zp_save,X
-        STA $40,X
-        DEX
-        BPL .Lrest_read
-        RTS
-
-        .global mlib_write_block
-mlib_write_block:
-        LDA #3                ; param count
-        STA mlib_params+0
-        LDA mli_unit
-        STA mlib_params+1
-        LDA mli_buf_lo
-        STA mlib_params+2
-        LDA mli_buf_hi
-        STA mlib_params+3
-        LDA mli_blk_lo
-        STA mlib_params+4
-        LDA mli_blk_hi
-        STA mlib_params+5
-        LDX #15
-.Lsave_write:
-        LDA $40,X
-        STA mli_zp_save,X
-        DEX
-        BPL .Lsave_write
-        JSR $BF00
-        .byte $81             ; WRITE_BLOCK
-        .word mlib_params
-        STA mli_status
-        LDX #15
-.Lrest_write:
-        LDA mli_zp_save,X
-        STA $40,X
-        DEX
-        BPL .Lrest_write
-        RTS
-
+mli_status: .byte 0
+        .global mli_zp_save
+mli_zp_save: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
         .section .data
-quit_params:
-        .byte 4               ; param count
-        .byte 0               ; quit type
-        .word 0               ; reserved / path ptr
-        .byte 0               ; reserved
-        .word 0               ; reserved
+        .global mli_open_params
+mli_open_params: .byte 3,0,0,0,0,0
+        .global mli_close_params
+mli_close_params: .byte 1,0
+        .global mli_read_params
+mli_read_params: .byte 4,0,0,0,0,0,0,0
+        .global mli_write_params
+mli_write_params: .byte 4,0,0,0,0,0,0,0
+        .global mli_mark_params
+mli_mark_params: .byte 2,0,0,0,0
+        .global mli_eof_params
+mli_eof_params: .byte 2,0,0,0,0
+        .global mli_create_params
+mli_create_params: .byte 7,0,0,0,0,0,0,1,0,0,0,0
+        .global mli_online_params
+mli_online_params: .byte 2,0,0,0,0
+        .global mli_prefix_params
+mli_prefix_params: .byte 1,0,0
 
         .section .text
+        .macro CALL_MLI name, opcode, params
+        .global \name
+\name:
+        LDX #15
+.Lsave\@:
+        LDA $40,X
+        STA mli_zp_save,X
+        DEX
+        BPL .Lsave\@
+        JSR $BF00
+        .byte \opcode
+        .word \params
+        STA mli_status
+        LDX #15
+.Lrest\@:
+        LDA mli_zp_save,X
+        STA $40,X
+        DEX
+        BPL .Lrest\@
+        RTS
+        .endmacro
+
+        CALL_MLI mlib_open,  $C8, mli_open_params
+        CALL_MLI mlib_close, $CC, mli_close_params
+        CALL_MLI mlib_read,  $CA, mli_read_params
+        CALL_MLI mlib_write, $CB, mli_write_params
+        CALL_MLI mlib_set_mark, $CE, mli_mark_params
+        CALL_MLI mlib_set_eof, $D0, mli_eof_params
+        CALL_MLI mlib_create, $C0, mli_create_params
+        CALL_MLI mlib_on_line, $C5, mli_online_params
+        CALL_MLI mlib_get_prefix, $C7, mli_prefix_params
+
+        .section .data
         .global mlib_quit
+quit_params:
+        .byte 4,0,0,0,0,0,0
+        .section .text
 mlib_quit:
         JSR $BF00
-        .byte $65             ; QUIT ($65)
+        .byte $65
         .word quit_params
         RTS
-

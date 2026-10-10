@@ -1,5 +1,7 @@
 # Mine Rescue (H.E.R.O.) — Apple II VERA Port
 
+**Software version: v1.02**
+
 A faithful port of the Commander X16 game [x16-hero](https://github.com/joolin1/x16-hero) (a sequel/tribute to Activision's classic *H.E.R.O.*) to the **Apple II with VERA FPGA card** platform.
 
 Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`mos-apple2e-clang`), using the proven [TimePilot-IIvera](https://github.com/anomixer/Time-Pilot) hardware scaffolding.
@@ -18,7 +20,8 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
 - **Frame-Accurate Creature Hitboxes**: Plants, spiders, and claws expand and contract rhythmically—sneak over retracted snake heads and under raised spiders safely.
 - **Animated Lava**: Deadly lava tiles shimmer with a cycling orange-yellow palette animation (every 6 frames), faithfully ported from the original `UpdateTileColors` in view.asm.
 - **Full PSG Soundtrack & Sound Effects**: 5 converted music tracks (Title, Level Complete, Killed, Game Over, High Scores) with loop support and multi-voice sound effects.
-- **100% Zero Runtime Disk Access**: All maps (11 cave scenes), sprites, tiles, and music streams are preloaded into VERA VRAM at boot. Level transitions and restarts perform instantaneous hardware VRAM-to-VRAM block copies (~16ms) without any disk latency, motor spin-up, or head seeking.
+- **Zero Runtime Asset Disk Access**: All maps (11 cave scenes), sprites, tiles, and music streams are preloaded into VERA VRAM at boot. Level transitions and restarts perform instantaneous hardware VRAM-to-VRAM block copies (~16ms); disk access is only used for high-score load/save after startup.
+- **Portable ProDOS files**: `MAIN.BIN` loads `ASSETS` and `HISCORE.BIN` through ProDOS file calls, so the files can be copied to another ProDOS volume without preserving fixed disk block locations. Asset reads stop after the boot preload; high-score reads and writes occur when scores are loaded or saved.
 - **Rich User Interface**:
   - Full titles, animated menu hand selector, start level selector (1..10), pause menu.
   - High score leaderboard with in-game signature entry.
@@ -128,6 +131,8 @@ This will automatically:
 2. Pack all tilemaps, fonts, palettes, and sprite sheets into `assets.blob`.
 3. Compile both Slot 2 (`MAIN.BIN`) and Slot 4 (`MAIN4.BIN`) binaries.
 4. Construct the bootable ProDOS disk image `x16-hero-vera.hdv`.
+
+For file-level installation, copy `MAIN.BIN`, `ASSETS`, and `HISCORE.BIN` into the same ProDOS directory. The game searches the current prefix first, then mounted volume roots for `ASSETS`, and uses the containing directory for high-score I/O. `ASSETS` is required; if `HISCORE.BIN` is absent, the game creates it when saving the default scores.
 
 ### Current CX16-parity details
 

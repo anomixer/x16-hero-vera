@@ -26,8 +26,8 @@ exact platform and provides reusable, proven scaffolding:
 - Polling VSYNC loop in `main()` (no IRQ handler)
 - Music converted at build time from ZSM → PSG register streams (`tools/gen_music.mjs`),
   played from VRAM by a 60Hz decoder
-- Assets packed into one `assets.blob` (`tools/gen_assets.mjs`) at fixed HDV block 900, read
-  via MLI
+- Assets packed into one `assets.blob` (`tools/gen_assets.mjs`) and installed as ProDOS file
+  `ASSETS`; read through MLI `OPEN`/`SET_MARK`/`READ` during boot, then closed
 
 ## Architecture & Platform Specifications
 
@@ -37,7 +37,9 @@ exact platform and provides reusable, proven scaffolding:
 - `DC_VIDEO` bit layout on this card: bit0=VGA, bit4=L0, bit5=L1, bit6=sprites — **NOT** the X16 layout
 - 16-bit signed `int16` arithmetic for creature screen positions (llvm-mos uses 16-bit ints)
 - 8-bit LFSR for random creature frame/offset (polynomial `$1d`)
-- **Zero Runtime Disk Access**: All maps (11 caves), sprites, tiles, and 5 PSG tracks preloaded at boot; level switches via VERA-to-VERA hardware copy (`vram_copy`)
+- **Zero Runtime Asset Disk Access**: All maps (11 caves), sprites, tiles, and 5 PSG tracks
+  preloaded at boot from `ASSETS`; level switches via VERA-to-VERA hardware copy
+  (`vram_copy`). `HISCORE.BIN` is accessed through ProDOS file calls when scores load/save.
 
 ## Memory Map
 
@@ -750,3 +752,24 @@ occasionally flaky (captures 0x0); the inline PowerShell capture works reliably.
   full permission to publish on apple2ts.com New Releases, (4) asked to credit both his name
   and "Clergy Games" (his self-made label).
 - Upstream remote `upstream` added locally pointing to `https://github.com/joolin1/x16-hero`.
+
+### Session 30 — ProDOS file-based asset and high-score I/O
+
+- Replaced runtime fixed-block reads/writes for assets and `HISCORE.BIN` with ProDOS
+  `OPEN`/`READ`/`WRITE`/`CLOSE` calls. Asset offsets now seek within the `ASSETS` file;
+  the file is closed after boot preload, preserving zero runtime asset disk I/O.
+- Added MLI wrappers for file operations, `SET_MARK`, `SET_EOF`, and `CREATE`; each wrapper
+  preserves `$40-$4F` around the MLI call. Added length/status checks and short-read fallback.
+- High-score files are created on save if absent. ProDOS `ON_LINE` enumerates mounted
+  volumes after first checking `GET_PREFIX`; the game finds `ASSETS` in the active directory
+  or a mounted volume root, then uses that directory for score I/O. The 1 KB OPEN buffer and
+  512-byte transfer buffer are separately allocated and page aligned in linked RAM.
+- Manual validation remains: build Slot 2/4, boot the standard image, then copy the three
+  files to a differently allocated ProDOS volume or subdirectory and verify asset loading
+  and score persistence.
+
+### Session 31 — v1.02 release label
+
+- Updated the in-game credit screen version from `1.01` to `1.02`.
+- Updated the README software version and clarified that file installs work from the current
+  ProDOS prefix, with volume-root search as a fallback.
