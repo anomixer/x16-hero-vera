@@ -25,6 +25,8 @@ static uint8_t online_volumes[256] __attribute__((aligned(256)));
 
 static const uint8_t assets_leaf[] = "ASSETS";
 static const uint8_t score_leaf[] = "HISCORE.BIN";
+static const uint8_t marker_leaf[] = "MINE.RESCUE";
+static const uint8_t marker_signature[4] = {'H', 'E', 'R', 'O'};
 static uint8_t open_file(const uint8_t *path, uint8_t *ref);
 static uint8_t close_file(uint8_t ref);
 
@@ -38,23 +40,6 @@ static uint8_t make_full_path(const uint8_t *leaf) {
     n += leaf_length;
     file_path[0] = n;
     return 1;
-}
-
-static uint8_t try_prefix_assets(void) {
-    uintptr_t p = (uintptr_t)online_volumes;
-    mli_prefix_params[1] = (uint8_t)p;
-    mli_prefix_params[2] = (uint8_t)(p >> 8);
-    mlib_get_prefix();
-    if (mli_status || online_volumes[0] == 0 || online_volumes[0] > 63) return 0;
-    current_prefix_length = online_volumes[0];
-    for (uint8_t i = 0; i < current_prefix_length; i++) current_prefix[i] = online_volumes[i + 1];
-    file_path[0] = 6;
-    for (uint8_t i = 0; i < 6; i++) file_path[i + 1] = assets_leaf[i];
-    if (!open_file(file_path, &asset_ref)) return 0;
-    /* Keep the full current prefix so HISCORE.BIN follows the same directory. */
-    if ((uint16_t)current_prefix_length + 11 <= 64) return 1;
-    close_file(asset_ref);
-    return 0;
 }
 
 static uint8_t open_file(const uint8_t *path, uint8_t *ref) {
@@ -122,10 +107,36 @@ static uint8_t create_score_file(void) {
     return mli_status == 0;
 }
 
+/* Only accept a directory containing our marker with the HERO signature, then
+ * open ASSETS from that same directory. This avoids adopting another game's
+ * unrelated ASSETS file. */
+static uint8_t try_game_directory(void) {
+    uint8_t marker_ref;
+    uint16_t got = 0;
+    if (!make_full_path(marker_leaf) || !open_file(file_path, &marker_ref)) return 0;
+    uint8_t valid = set_mark(marker_ref, 0) && read_chunk(marker_ref, transfer_buffer, 4, &got);
+    close_file(marker_ref);
+    if (!valid) return 0;
+    for (uint8_t i = 0; i < 4; i++) if (transfer_buffer[i] != marker_signature[i]) return 0;
+    if (!make_full_path(assets_leaf) || !open_file(file_path, &asset_ref)) return 0;
+    return 1;
+}
+
 void disk_init(void) {
     /* A2 DeskTop may launch MAIN.BIN from a disk other than ProDOS's boot
-     * device. Try the active prefix first, then search mounted volume roots. */
-    if (try_prefix_assets()) {
+     * device. Try the active directory first (including a launch subdirectory),
+     * then mounted volume roots. MINE.RESCUE identifies this game's directory. */
+    uintptr_t p = (uintptr_t)online_volumes;
+    mli_prefix_params[1] = (uint8_t)p;
+    mli_prefix_params[2] = (uint8_t)(p >> 8);
+    mlib_get_prefix();
+    if (!mli_status && online_volumes[0] > 0 && online_volumes[0] <= 63) {
+        current_prefix_length = online_volumes[0];
+        for (uint8_t i = 0; i < current_prefix_length; i++) current_prefix[i] = online_volumes[i + 1];
+    } else {
+        current_prefix_length = 0;
+    }
+    if (try_game_directory()) {
         asset_open = 1;
         return;
     }
@@ -143,8 +154,7 @@ void disk_init(void) {
         current_prefix[0] = '/';
         for (uint8_t i = 0; i < name_len; i++) current_prefix[i + 1] = online_volumes[off + 1 + i] & 0x7F;
         current_prefix[name_len + 1] = '/';
-        if (!make_full_path(assets_leaf)) continue;
-        if (open_file(file_path, &asset_ref)) {
+        if (try_game_directory()) {
             asset_open = 1;
             break;
         }

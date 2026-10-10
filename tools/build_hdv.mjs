@@ -1,12 +1,13 @@
 // build_hdv.mjs — Package x16-hero into a bootable ProDOS 8 HDV (.hdv).
 //
 // Boot chain: ProDOS HDV -> BASIC.SYSTEM -> Applesoft STARTUP -> BRUN MAIN.BIN.
-// The game's assets.blob is placed at FIXED blocks (ASSET_START_BLOCK=900, kept
-// in sync with src/disk.c) and read directly by the 6502 via MLI READ_BLOCK.
-// Only MAIN.BIN / MAIN4.BIN and STARTUP get named directory entries.
+// The game's assets.blob is registered as the ProDOS file ASSETS, and all game
+// data is loaded through ProDOS file operations. The builder also includes the
+// MINE.RESCUE identity marker and stamps generated directory entries.
 // Modeled on C:\dev\Time-Pilot\TimePilot-IIvera\tools\build_hdv.mjs.
 import fs from "fs"
 import path from "path"
+import { execFileSync } from "child_process"
 import { fileURLToPath } from "url"
 import { compileApplesoftBasic } from "./applebasic.mjs"
 
@@ -14,18 +15,50 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, "..")
 const srcDir = path.join(projectRoot, "src")
 const buildDir = path.join(projectRoot, "build")
-const baseHdvPath = path.join(projectRoot, "800kb.hdv")
+const cadiusPath = path.join(__dirname, "cadius.exe")
+const systemFilesDir = path.join(projectRoot, "assets", "prodos-system")
+const baseHdvPath = path.join(buildDir, "system-base.hdv")
 const BLOCK = 512
 const HISCORE_START_BLOCK = 899
 const ASSET_START_BLOCK = 900
+const PRODOS_VOLUME_NAME = "MINE.RESCUE"
+const buildTimestamp = new Date()
+
+function prodosDateTime(date) {
+  /* Match ProDOS Y2K timestamps: 2000-2099 use a 0-99 year field. */
+  const fullYear = date.getFullYear()
+  const year = fullYear >= 2000 ? fullYear - 2000 : fullYear - 1900
+  if (year < 0 || year > 99) throw new RangeError(`ProDOS timestamps cannot represent year ${fullYear}`)
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const packedDate = ((year & 0x7F) << 9) | ((month & 0x0F) << 5) | (day & 0x1F)
+  const packedTime = ((hours & 0x1F) << 8) | (minutes & 0x3F)
+  return [packedDate & 0xFF, packedDate >> 8, packedTime & 0xFF, packedTime >> 8]
+}
+
+const buildDateTime = prodosDateTime(buildTimestamp)
 
 const outputArg = process.argv.find((arg) => arg.startsWith("--output="))
 const outFileName = outputArg ? outputArg.slice("--output=".length) : "x16-hero-vera.hdv"
 const outPath = path.join(projectRoot, outFileName)
 
-if (!fs.existsSync(baseHdvPath)) throw new Error(`Base HDV not found: ${baseHdvPath}`)
 for (const f of ["main.bin", "assets.blob"])
   if (!fs.existsSync(path.join(buildDir, f))) throw new Error(`build/${f} missing — run build.bat first`)
+
+// Build a fresh ProDOS volume shell and add the standalone system files. This
+// keeps the bootable disk image independent of a prebuilt disk image.
+const systemFiles = ["PRODOS", "BASIC.SYSTEM", "CLOCK.SYSTEM"]
+for (const name of systemFiles) {
+  const filePath = path.join(systemFilesDir, `${name}#FF0000`)
+  if (!fs.existsSync(filePath)) throw new Error(`ProDOS system file missing: ${filePath}`)
+}
+if (fs.existsSync(baseHdvPath)) fs.unlinkSync(baseHdvPath)
+execFileSync(cadiusPath, ["CREATEVOLUME", baseHdvPath, PRODOS_VOLUME_NAME, "800KB"], { stdio: "inherit" })
+for (const name of systemFiles) {
+  execFileSync(cadiusPath, ["ADDFILE", baseHdvPath, `/${PRODOS_VOLUME_NAME}`, path.join(systemFilesDir, `${name}#FF0000`)], { stdio: "inherit" })
+}
 
 const disk = new Uint8Array(fs.readFileSync(baseHdvPath))
 const TOTAL = disk.length / BLOCK
@@ -141,7 +174,9 @@ function addMain(buildName, outName) {
   return f
 }
 const fMain = addMain("main.bin", "MAIN.BIN")
-const appFiles = [fStartup, fMain]
+const markerData = new Uint8Array(fs.readFileSync(path.join(projectRoot, "assets", "MINE.RESCUE")))
+const marker = writeFile("MINE.RESCUE", 0x06, 0x2000, markerData)
+const appFiles = [fStartup, fMain, marker]
 if (fs.existsSync(path.join(buildDir, "main4.bin"))) appFiles.push(addMain("main4.bin", "MAIN4.BIN"))
 
 const fHiscore = {
@@ -160,6 +195,10 @@ const dataFiles = [
 
 // ---- Rewrite the root directory (block 2) ----
 const vol = disk.subarray(2 * BLOCK, 3 * BLOCK)
+if (PRODOS_VOLUME_NAME.length > 15) throw new Error("ProDOS volume name exceeds 15 characters")
+vol[4] = (vol[4] & 0xF0) | PRODOS_VOLUME_NAME.length
+vol.fill(0, 5, 21)
+vol.set([...PRODOS_VOLUME_NAME].map((c) => c.charCodeAt(0)), 5)
 const nameOf = (off, len) => String.fromCharCode(...vol.subarray(off + 1, off + 1 + len))
 const keep = []
 for (let i = 1; i <= 12; i++) {
@@ -185,9 +224,17 @@ for (const e of [...appFiles, ...dataFiles]) {
   vol[off + 0x15] = e.eof & 0xFF
   vol[off + 0x16] = (e.eof >> 8) & 0xFF
   vol[off + 0x17] = (e.eof >> 16) & 0xFF
+  vol[off + 0x18] = buildDateTime[0]
+  vol[off + 0x19] = buildDateTime[1]
+  vol[off + 0x1A] = buildDateTime[2]
+  vol[off + 0x1B] = buildDateTime[3]
   vol[off + 0x1E] = 0xC3
   vol[off + 0x1F] = e.aux & 0xFF
   vol[off + 0x20] = (e.aux >> 8) & 0xFF
+  vol[off + 0x21] = buildDateTime[0]
+  vol[off + 0x22] = buildDateTime[1]
+  vol[off + 0x23] = buildDateTime[2]
+  vol[off + 0x24] = buildDateTime[3]
   vol[off + 0x25] = 2
   vol[off + 0x26] = 0
   idx++

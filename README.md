@@ -21,7 +21,9 @@ Developed in C compiled with [llvm-mos](https://github.com/llvm-mos/llvm-mos) (`
 - **Animated Lava**: Deadly lava tiles shimmer with a cycling orange-yellow palette animation (every 6 frames), faithfully ported from the original `UpdateTileColors` in view.asm.
 - **Full PSG Soundtrack & Sound Effects**: 5 converted music tracks (Title, Level Complete, Killed, Game Over, High Scores) with loop support and multi-voice sound effects.
 - **Zero Runtime Asset Disk Access**: All maps (11 cave scenes), sprites, tiles, and music streams are preloaded into VERA VRAM at boot. Level transitions and restarts perform instantaneous hardware VRAM-to-VRAM block copies (~16ms); disk access is only used for high-score load/save after startup.
-- **Portable ProDOS files**: `MAIN.BIN` loads `ASSETS` and `HISCORE.BIN` through ProDOS file calls, so the files can be copied to another ProDOS volume without preserving fixed disk block locations. Asset reads stop after the boot preload; high-score reads and writes occur when scores are loaded or saved.
+- **Portable ProDOS files**: `MAIN.BIN` identifies its directory using the `MINE.RESCUE` marker, then loads `ASSETS` and `HISCORE.BIN` through ProDOS file calls. The marker prevents the game from mistaking another game's `ASSETS` file for its own. Asset reads stop after the boot preload; high-score reads and writes occur when scores are loaded or saved.
+- The generated HDV volume is named `MINE.RESCUE`.
+- Files created by the HDV builder carry ProDOS creation and modification timestamps from the local build time.
 - **Rich User Interface**:
   - Full titles, animated menu hand selector, start level selector (1..10), pause menu.
   - High score leaderboard with in-game signature entry.
@@ -91,7 +93,8 @@ The game operates on a zero-disk dual-memory architecture:
 
 ```
 x16-hero-vera/
-├── assets/          # Raw binary tilemaps, sprites, fonts, palettes & ZSM tracks
+├── assets/          # Game assets, MINE.RESCUE marker, and ProDOS system files
+│   └── prodos-system/ # PRODOS, BASIC.SYSTEM, CLOCK.SYSTEM source files for HDV builds
 ├── src/
 │   ├── main.c           # Main game logic, state machine, entity management & rendering
 │   ├── apple2e.h        # Slot-agnostic Apple II VERA registers & hardware definitions
@@ -102,7 +105,8 @@ x16-hero-vera/
 │   ├── mli.s            # ProDOS MLI low-level assembly wrapper
 │   └── startup.bas      # Applesoft BASIC bootloader (slot probe & binary launcher)
 ├── tools/
-│   ├── build_hdv.mjs    # Generates bootable ProDOS 800K HDV disk image
+│   ├── build_hdv.mjs    # Builds an 800K HDV with Cadius and the bundled system files
+│   ├── cadius.exe       # Bundled Cadius 1.4.5 volume/file utility
 │   ├── gen_assets.mjs   # Packs tilemaps, sprites, fonts, and palettes into assets.blob
 │   ├── gen_music.mjs    # Converts ZSM music files into PSG register event streams
 │   └── applebasic.mjs   # Standalone Applesoft BASIC tokenizer & compiler
@@ -119,6 +123,7 @@ x16-hero-vera/
 ### Prerequisites
 1. **llvm-mos SDK** (`mos-apple2e-clang`) installed and added to your `PATH`.
 2. **Node.js** (v18+ recommended) for running asset and disk generation tools.
+3. `tools/cadius.exe` is included; no separate Cadius installation or PATH entry is needed.
 
 ### Build Command
 Simply execute the build batch file:
@@ -130,9 +135,16 @@ This will automatically:
 1. Parse and compile all `.zsm` music tracks into compact PSG register streams.
 2. Pack all tilemaps, fonts, palettes, and sprite sheets into `assets.blob`.
 3. Compile both Slot 2 (`MAIN.BIN`) and Slot 4 (`MAIN4.BIN`) binaries.
-4. Construct the bootable ProDOS disk image `x16-hero-vera.hdv`.
+4. Use the bundled Cadius to create a fresh 800K ProDOS volume, add `PRODOS`,
+   `BASIC.SYSTEM`, and `CLOCK.SYSTEM` from `assets/prodos-system/`, then construct the
+   bootable image `x16-hero-vera.hdv`.
 
-For file-level installation, copy `MAIN.BIN`, `ASSETS`, and `HISCORE.BIN` into the same ProDOS directory. The game searches the current prefix first, then mounted volume roots for `ASSETS`, and uses the containing directory for high-score I/O. `ASSETS` is required; if `HISCORE.BIN` is absent, the game creates it when saving the default scores.
+The build does not require a prebuilt seed HDV. `assets/MINE.RESCUE` is the four-byte
+`HERO` game-directory marker; it is installed at the root of the generated image. Generated
+ProDOS directory entries receive local build date/time stamps using the ProDOS Y2K year
+encoding. System files retain their source timestamps.
+
+For file-level installation, copy `MAIN.BIN`, `MINE.RESCUE`, and `ASSETS` into the same ProDOS directory. `MINE.RESCUE` must contain the four bytes `HERO`; the game checks the current prefix first, then mounted volume roots. Launching from a subdirectory works when the ProDOS prefix points to that directory. The containing directory is used for high-score I/O. `HISCORE.BIN` is optional and will be created when scores are saved.
 
 ### Current CX16-parity details
 
