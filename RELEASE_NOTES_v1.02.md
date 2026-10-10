@@ -5,6 +5,7 @@
 - Game files can now be loaded from a ProDOS subdirectory or the mounted volume root, so the disk image can be copied to another disk and launched from its own folder.
 - Assets and high scores use ProDOS file operations. High scores are saved alongside the game files and persist across launches.
 - Updated the in-game credits to show version 1.02.
+- Works with [A2Desktop](https://www.a2desktop.com) and the VeraSD-IFS-ProDOS SD block driver in [VeraSDTool v1.03](https://github.com/anomixer/verasdtool), allowing the game to be accessed and run directly from Vera SD.
 
 ## Installation
 
